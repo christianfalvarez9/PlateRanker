@@ -237,7 +237,8 @@ npm run seed
 
 ## External API Notes
 
-- Google Places integration is implemented with fallback mock results when API key is missing.
+- Google Places integration is implemented with fallback mock results when API key is missing in local development.
+- In production, `GOOGLE_PLACES_API_KEY` is required and backend startup will fail fast if it is missing.
 - Menu provider integration supports:
   - `MENU_PROVIDER=mock|spoonacular`
   - automatic provider fetch for menu sync endpoint
@@ -296,7 +297,7 @@ JWT_SECRET="<strong-random-secret>"
 JWT_EXPIRES_IN="7d"
 CORS_ORIGIN_ALLOWLIST="https://your-frontend-domain.com"
 
-GOOGLE_PLACES_API_KEY=""
+GOOGLE_PLACES_API_KEY="<required-in-production>"
 MENU_PROVIDER="mock"
 MENU_API_KEY=""
 MENU_CACHE_TTL_HOURS="24"

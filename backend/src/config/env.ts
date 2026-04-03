@@ -65,6 +65,16 @@ function requiredWithSafeProductionValue(key: string, fallback: string): string 
   return value;
 }
 
+function optionalWithSafeProductionValue(key: string): string {
+  const value = process.env[key]?.trim() ?? '';
+
+  if (isProduction && !value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+
+  return value;
+}
+
 function csvListFromEnv(key: string): string[] {
   const raw = process.env[key];
   if (!raw) {
@@ -98,7 +108,7 @@ export const env = {
   jwtSecret: requiredWithSafeProductionValue('JWT_SECRET', 'replace-with-strong-secret'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   corsOriginAllowlist: corsOriginAllowlistFromEnv(),
-  googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? '',
+  googlePlacesApiKey: optionalWithSafeProductionValue('GOOGLE_PLACES_API_KEY'),
   menuProvider: process.env.MENU_PROVIDER ?? 'mock',
   menuApiKey: process.env.MENU_API_KEY ?? '',
   menuCacheTtlHours: positiveIntFromEnv('MENU_CACHE_TTL_HOURS', 24),

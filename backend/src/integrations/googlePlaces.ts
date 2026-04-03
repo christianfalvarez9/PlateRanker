@@ -15,6 +15,12 @@ type GooglePlaceTextSearchItem = {
   formatted_address?: string;
 };
 
+type GooglePlaceTextSearchResponse = {
+  status?: string;
+  error_message?: string;
+  results?: GooglePlaceTextSearchItem[];
+};
+
 type GooglePlaceDetailResponse = {
   result?: {
     name?: string;
@@ -70,21 +76,48 @@ export async function searchGooglePlaces(args: {
   }
 
   const searchQuery = buildRestaurantSearchQuery(query);
-  const queryParams = new URLSearchParams({
-    query: searchQuery,
-    type: 'restaurant',
-    key: env.googlePlacesApiKey,
-  });
+  let places: GooglePlaceTextSearchItem[] = [];
 
   if (lat !== undefined && lng !== undefined) {
-    queryParams.set('location', `${lat},${lng}`);
-    queryParams.set('radius', String(DEFAULT_SEARCH_RADIUS_METERS));
+    const nearbyParams = new URLSearchParams({
+      location: `${lat},${lng}`,
+      radius: String(DEFAULT_SEARCH_RADIUS_METERS),
+      type: 'restaurant',
+      key: env.googlePlacesApiKey,
+    });
+
+    const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?${nearbyParams.toString()}`;
+    const nearbySearch = await axios.get<GooglePlaceTextSearchResponse>(nearbyUrl);
+
+    if (nearbySearch.data.status && nearbySearch.data.status !== 'OK' && nearbySearch.data.status !== 'ZERO_RESULTS') {
+      throw new Error(
+        `Google Places nearby search failed: ${nearbySearch.data.status}${
+          nearbySearch.data.error_message ? ` - ${nearbySearch.data.error_message}` : ''
+        }`,
+      );
+    }
+
+    places = (nearbySearch.data.results ?? []).slice(0, 10);
+  } else {
+    const textParams = new URLSearchParams({
+      query: searchQuery,
+      type: 'restaurant',
+      key: env.googlePlacesApiKey,
+    });
+
+    const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?${textParams.toString()}`;
+    const textSearch = await axios.get<GooglePlaceTextSearchResponse>(textSearchUrl);
+
+    if (textSearch.data.status && textSearch.data.status !== 'OK' && textSearch.data.status !== 'ZERO_RESULTS') {
+      throw new Error(
+        `Google Places text search failed: ${textSearch.data.status}${
+          textSearch.data.error_message ? ` - ${textSearch.data.error_message}` : ''
+        }`,
+      );
+    }
+
+    places = (textSearch.data.results ?? []).slice(0, 10);
   }
-
-  const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?${queryParams.toString()}`;
-
-  const textSearch = await axios.get<{ results?: GooglePlaceTextSearchItem[] }>(textSearchUrl);
-  const places = (textSearch.data.results ?? []).slice(0, 10);
 
   const enriched = await Promise.all(
     places.map(async (place) => {
