@@ -31,6 +31,12 @@ type GooglePlaceDetailResponse = {
 };
 
 const DEFAULT_SEARCH_RADIUS_METERS = 20_000;
+const MAX_SEARCH_RESULTS = 10;
+
+function isPostalCodeQuery(query: string): boolean {
+  const trimmed = query.trim();
+  return /^\d{5}(?:-\d{4})?$/.test(trimmed);
+}
 
 function buildRestaurantSearchQuery(query: string): string {
   const trimmed = query.trim();
@@ -38,11 +44,66 @@ function buildRestaurantSearchQuery(query: string): string {
     return 'restaurants';
   }
 
+  if (isPostalCodeQuery(trimmed)) {
+    return `restaurants in ${trimmed}`;
+  }
+
   if (/\brestaurants?\b/i.test(trimmed)) {
     return trimmed;
   }
 
   return `${trimmed} restaurants`;
+}
+
+function assertGooglePlacesStatus(
+  operation: 'text search' | 'nearby search' | 'details',
+  status?: string,
+  errorMessage?: string,
+): void {
+  if (!status || status === 'OK' || status === 'ZERO_RESULTS') {
+    return;
+  }
+
+  throw new Error(
+    `Google Places ${operation} failed: ${status}${errorMessage ? ` - ${errorMessage}` : ''}`,
+  );
+}
+
+async function textSearchPlaces(args: {
+  query: string;
+  lat?: number;
+  lng?: number;
+}): Promise<GooglePlaceTextSearchItem[]> {
+  const params = new URLSearchParams({
+    query: args.query,
+    key: env.googlePlacesApiKey,
+  });
+
+  if (args.lat !== undefined && args.lng !== undefined) {
+    params.set('location', `${args.lat},${args.lng}`);
+    params.set('radius', String(DEFAULT_SEARCH_RADIUS_METERS));
+  }
+
+  const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`;
+  const textSearch = await axios.get<GooglePlaceTextSearchResponse>(textSearchUrl);
+
+  assertGooglePlacesStatus('text search', textSearch.data.status, textSearch.data.error_message);
+  return (textSearch.data.results ?? []).slice(0, MAX_SEARCH_RESULTS);
+}
+
+async function nearbySearchPlaces(lat: number, lng: number): Promise<GooglePlaceTextSearchItem[]> {
+  const nearbyParams = new URLSearchParams({
+    location: `${lat},${lng}`,
+    radius: String(DEFAULT_SEARCH_RADIUS_METERS),
+    keyword: 'restaurant',
+    key: env.googlePlacesApiKey,
+  });
+
+  const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?${nearbyParams.toString()}`;
+  const nearbySearch = await axios.get<GooglePlaceTextSearchResponse>(nearbyUrl);
+
+  assertGooglePlacesStatus('nearby search', nearbySearch.data.status, nearbySearch.data.error_message);
+  return (nearbySearch.data.results ?? []).slice(0, MAX_SEARCH_RESULTS);
 }
 
 function fallbackMockResults(query: string): PlaceResult[] {
@@ -79,63 +140,54 @@ export async function searchGooglePlaces(args: {
   let places: GooglePlaceTextSearchItem[] = [];
 
   if (lat !== undefined && lng !== undefined) {
-    const nearbyParams = new URLSearchParams({
-      location: `${lat},${lng}`,
-      radius: String(DEFAULT_SEARCH_RADIUS_METERS),
-      type: 'restaurant',
-      key: env.googlePlacesApiKey,
-    });
+    places = await nearbySearchPlaces(lat, lng);
 
-    const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?${nearbyParams.toString()}`;
-    const nearbySearch = await axios.get<GooglePlaceTextSearchResponse>(nearbyUrl);
-
-    if (nearbySearch.data.status && nearbySearch.data.status !== 'OK' && nearbySearch.data.status !== 'ZERO_RESULTS') {
-      throw new Error(
-        `Google Places nearby search failed: ${nearbySearch.data.status}${
-          nearbySearch.data.error_message ? ` - ${nearbySearch.data.error_message}` : ''
-        }`,
-      );
+    if (!places.length) {
+      places = await textSearchPlaces({
+        query: searchQuery,
+        lat,
+        lng,
+      });
     }
-
-    places = (nearbySearch.data.results ?? []).slice(0, 10);
   } else {
-    const textParams = new URLSearchParams({
-      query: searchQuery,
-      type: 'restaurant',
-      key: env.googlePlacesApiKey,
-    });
+    places = await textSearchPlaces({ query: searchQuery });
 
-    const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?${textParams.toString()}`;
-    const textSearch = await axios.get<GooglePlaceTextSearchResponse>(textSearchUrl);
-
-    if (textSearch.data.status && textSearch.data.status !== 'OK' && textSearch.data.status !== 'ZERO_RESULTS') {
-      throw new Error(
-        `Google Places text search failed: ${textSearch.data.status}${
-          textSearch.data.error_message ? ` - ${textSearch.data.error_message}` : ''
-        }`,
-      );
+    if (!places.length && isPostalCodeQuery(query)) {
+      places = await textSearchPlaces({ query: query.trim() });
     }
-
-    places = (textSearch.data.results ?? []).slice(0, 10);
   }
 
   const enriched = await Promise.all(
     places.map(async (place) => {
-      const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,website&key=${env.googlePlacesApiKey}`;
-      const detail = await axios.get<GooglePlaceDetailResponse>(detailUrl);
-      const result = detail.data.result ?? {};
+      const placeId = place.place_id;
+      if (!placeId) {
+        return null;
+      }
 
-      const resolvedName = result.name ?? place.name ?? 'Unknown Restaurant';
+      try {
+        const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,formatted_phone_number,website&key=${env.googlePlacesApiKey}`;
+        const detail = await axios.get<GooglePlaceDetailResponse>(detailUrl);
+        assertGooglePlacesStatus('details', (detail.data as GooglePlaceTextSearchResponse).status, (detail.data as GooglePlaceTextSearchResponse).error_message);
+        const result = detail.data.result ?? {};
 
-      return {
-        placeId: place.place_id,
-        name: resolvedName,
-        address: result.formatted_address ?? place.formatted_address ?? '',
-        phone: result.formatted_phone_number,
-        website: result.website,
-      } as PlaceResult;
+        const resolvedName = result.name ?? place.name ?? 'Unknown Restaurant';
+
+        return {
+          placeId,
+          name: resolvedName,
+          address: result.formatted_address ?? place.formatted_address ?? '',
+          phone: result.formatted_phone_number,
+          website: result.website,
+        } as PlaceResult;
+      } catch {
+        return {
+          placeId,
+          name: place.name ?? 'Unknown Restaurant',
+          address: place.formatted_address ?? '',
+        } as PlaceResult;
+      }
     }),
   );
 
-  return enriched;
+  return enriched.filter((item): item is PlaceResult => Boolean(item));
 }

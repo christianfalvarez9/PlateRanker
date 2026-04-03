@@ -220,6 +220,7 @@ export async function syncRestaurantMenu(
         name: restaurant.name,
         address: restaurant.address,
         website: restaurant.website,
+        googlePlacesRef: restaurant.googlePlacesRef,
       });
 
       const created: Awaited<ReturnType<typeof prisma.dish.create>>[] = [];
@@ -285,7 +286,7 @@ export async function syncRestaurantMenu(
 
       await saveMenuSyncState({
         restaurantId,
-        provider: env.menuProvider,
+        provider: syncState?.provider ?? 'google-places',
         lastAttemptAt: now,
         lastSuccessAt: syncState?.lastSuccessAt ?? null,
         failureCount: nextFailureCount,

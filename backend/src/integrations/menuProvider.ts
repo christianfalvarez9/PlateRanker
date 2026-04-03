@@ -15,18 +15,35 @@ export type FetchMenuInput = {
   name: string;
   address?: string | null;
   website?: string | null;
+  googlePlacesRef?: string | null;
 };
 
-export type MenuProviderId = 'mock' | 'spoonacular' | 'spoonacular-fallback-mock';
+export type MenuProviderId = 'google-places';
 
 export type ExternalMenuFetchResult = {
   provider: MenuProviderId;
   items: ExternalMenuItem[];
 };
 
-type SpoonacularMenuSearchResponse = {
-  menuItems?: Array<{ title?: string }>;
-  results?: Array<{ title?: string }>;
+type GooglePlaceSearchResponse = {
+  status?: string;
+  error_message?: string;
+  results?: Array<{
+    place_id?: string;
+  }>;
+};
+
+type GooglePlaceDetailsResponse = {
+  status?: string;
+  error_message?: string;
+  result?: {
+    editorial_summary?: {
+      overview?: string;
+    };
+    reviews?: Array<{
+      text?: string;
+    }>;
+  };
 };
 
 let activeProviderRequests = 0;
@@ -46,6 +63,29 @@ const DRINK_KEYWORDS = [
   'beer',
   'wine',
 ];
+
+const NON_MENU_TERMS = [
+  'restaurant',
+  'service',
+  'staff',
+  'waiter',
+  'waitress',
+  'ambience',
+  'atmosphere',
+  'experience',
+  'location',
+  'place',
+  'parking',
+  'price',
+  'portion',
+  'owner',
+  'manager',
+  'table',
+  'reservation',
+  'bathroom',
+];
+
+const MAX_MENU_ITEMS = 30;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -222,80 +262,168 @@ function dedupeItems(items: ExternalMenuItem[]): ExternalMenuItem[] {
   return deduped;
 }
 
-function fallbackMockResults(_restaurantName: string): ExternalMenuItem[] {
-  return [
-    {
-      name: 'House Salad',
-      category: DishCategory.APPETIZER,
-      source: DishSource.API,
-      status: DishStatus.ACTIVE,
-    },
-    {
-      name: 'Signature Burger',
-      category: DishCategory.ENTREE,
-      source: DishSource.API,
-      status: DishStatus.ACTIVE,
-    },
-    {
-      name: 'Truffle Fries',
-      category: DishCategory.SIDE,
-      source: DishSource.API,
-      status: DishStatus.ACTIVE,
-    },
-    {
-      name: 'Chocolate Cake',
-      category: DishCategory.DESSERT,
-      source: DishSource.API,
-      status: DishStatus.SEASONAL,
-    },
+function normalizeDishCandidate(candidate: string): string {
+  return cleanItemName(candidate)
+    .replace(/^the\s+/i, '')
+    .replace(/\b(?:at|here|there|tonight|today)\b.*$/i, '')
+    .replace(/["'“”]+/g, '')
+    .trim();
+}
+
+function isLikelyDishCandidate(candidate: string): boolean {
+  if (!candidate) {
+    return false;
+  }
+
+  if (candidate.length < 3 || candidate.length > 60) {
+    return false;
+  }
+
+  const words = candidate.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 6) {
+    return false;
+  }
+
+  const lower = candidate.toLowerCase();
+  if (NON_MENU_TERMS.some((term) => lower.includes(term))) {
+    return false;
+  }
+
+  if (looksLikeDrink(candidate)) {
+    return false;
+  }
+
+  return /[a-z]/i.test(candidate);
+}
+
+function extractDishCandidatesFromText(text: string): string[] {
+  const rawCandidates: string[] = [];
+
+  for (const match of text.matchAll(/"([^"\n]{3,80})"/g)) {
+    rawCandidates.push(match[1]);
+  }
+
+  const patterns = [
+    /(?:ordered|had|got|tried|try|recommend(?:ed)?|loved?|favorite|best)\s+(?:the\s+)?([a-z][a-z0-9'&\- ]{2,80})/gi,
+    /(?:must\s+try|go\s+for)\s+(?:the\s+)?([a-z][a-z0-9'&\- ]{2,80})/gi,
   ];
+
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      rawCandidates.push(match[1]);
+    }
+  }
+
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+
+  for (const raw of rawCandidates) {
+    const normalized = normalizeDishCandidate(raw);
+    if (!isLikelyDishCandidate(normalized)) {
+      continue;
+    }
+
+    const key = buildDeduplicationKey(normalized);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    candidates.push(normalized);
+  }
+
+  return candidates;
 }
 
-function configuredMenuProvider(): 'mock' | 'spoonacular' {
-  return env.menuProvider.toLowerCase() === 'spoonacular' ? 'spoonacular' : 'mock';
+function assertGooglePlacesStatus(operation: string, status?: string, errorMessage?: string): void {
+  if (!status || status === 'OK' || status === 'ZERO_RESULTS') {
+    return;
+  }
+
+  throw new Error(
+    `Google Places ${operation} failed: ${status}${errorMessage ? ` - ${errorMessage}` : ''}`,
+  );
 }
 
-async function fetchSpoonacularMenuItems(input: FetchMenuInput): Promise<ExternalMenuItem[]> {
+async function resolveGooglePlaceId(input: FetchMenuInput): Promise<string | null> {
+  if (input.googlePlacesRef) {
+    return input.googlePlacesRef;
+  }
+
+  if (!env.googlePlacesApiKey) {
+    return null;
+  }
+
+  const query = [input.name, input.address ?? ''].filter(Boolean).join(' ').trim();
+  if (!query) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    query,
+    type: 'restaurant',
+    key: env.googlePlacesApiKey,
+  });
+
+  const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`;
   const response = await requestWithRetry(() =>
-    axios.get<SpoonacularMenuSearchResponse>('https://api.spoonacular.com/food/menuItems/search', {
-      params: {
-        query: input.name,
-        number: 40,
-        apiKey: env.menuApiKey,
-      },
+    axios.get<GooglePlaceSearchResponse>(searchUrl, {
       timeout: 8000,
     }),
   );
 
-  const rawItems = [...(response.data.menuItems ?? []), ...(response.data.results ?? [])];
-  const mapped = rawItems
-    .map((entry) => entry.title ?? '')
+  assertGooglePlacesStatus('text search', response.data.status, response.data.error_message);
+
+  return response.data.results?.[0]?.place_id ?? null;
+}
+
+async function fetchGooglePlacesMenuItems(input: FetchMenuInput): Promise<ExternalMenuItem[]> {
+  if (!env.googlePlacesApiKey) {
+    return [];
+  }
+
+  const placeId = await resolveGooglePlaceId(input);
+  if (!placeId) {
+    return [];
+  }
+
+  const params = new URLSearchParams({
+    place_id: placeId,
+    fields: 'reviews,editorial_summary',
+    key: env.googlePlacesApiKey,
+  });
+
+  const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`;
+  const detailsResponse = await requestWithRetry(() =>
+    axios.get<GooglePlaceDetailsResponse>(detailsUrl, {
+      timeout: 8000,
+    }),
+  );
+
+  if (detailsResponse.data.status === 'NOT_FOUND') {
+    return [];
+  }
+
+  assertGooglePlacesStatus('details', detailsResponse.data.status, detailsResponse.data.error_message);
+
+  const textSources = [
+    detailsResponse.data.result?.editorial_summary?.overview ?? '',
+    ...(detailsResponse.data.result?.reviews ?? []).map((review) => review.text ?? ''),
+  ].filter(Boolean);
+
+  const candidates = textSources.flatMap((text) => extractDishCandidatesFromText(text));
+  const mapped = candidates
     .map((name) => mapToExternalMenuItem(name))
     .filter((item): item is ExternalMenuItem => Boolean(item));
 
-  return dedupeItems(mapped);
+  return dedupeItems(mapped).slice(0, MAX_MENU_ITEMS);
 }
 
 export async function fetchMenuForRestaurant(input: FetchMenuInput): Promise<ExternalMenuFetchResult> {
-  const provider = configuredMenuProvider();
-
-  if (provider === 'spoonacular') {
-    if (!env.menuApiKey) {
-      return {
-        provider: 'spoonacular-fallback-mock',
-        items: fallbackMockResults(input.name),
-      };
-    }
-
-    const items = await fetchSpoonacularMenuItems(input);
-    return {
-      provider: 'spoonacular',
-      items,
-    };
-  }
+  const items = await fetchGooglePlacesMenuItems(input);
 
   return {
-    provider: 'mock',
-    items: fallbackMockResults(input.name),
+    provider: 'google-places',
+    items,
   };
 }

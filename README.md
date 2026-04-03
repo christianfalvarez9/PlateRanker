@@ -239,18 +239,14 @@ npm run seed
 
 - Google Places integration is implemented with fallback mock results when API key is missing in local development.
 - In production, `GOOGLE_PLACES_API_KEY` is required and backend startup will fail fast if it is missing.
-- Menu provider integration supports:
-  - `MENU_PROVIDER=mock|spoonacular`
-  - automatic provider fetch for menu sync endpoint
-  - DB-backed sync state cache (`MenuSyncState`) with TTL/cooldown/error tracking
-  - retry + throttling controls via env variables
+- Menu population uses Google Places data only and does not synthesize mock menu items.
+- If upstream menu-like data is unavailable for a restaurant, the menu remains empty (users can still add dishes manually).
+- Menu sync uses DB-backed sync state cache (`MenuSyncState`) with TTL/cooldown/error tracking plus retry/throttling controls.
 - Recipe provider includes mock/default behavior and can be swapped to live provider calls by setting API keys.
 
 ### Menu sync environment variables
 
 ```text
-MENU_PROVIDER="mock"
-MENU_API_KEY=""
 MENU_CACHE_TTL_HOURS="24"
 MENU_MAX_RETRIES="3"
 MENU_MIN_REQUEST_INTERVAL_MS="250"
@@ -298,8 +294,6 @@ JWT_EXPIRES_IN="7d"
 CORS_ORIGIN_ALLOWLIST="https://your-frontend-domain.com"
 
 GOOGLE_PLACES_API_KEY="<required-in-production>"
-MENU_PROVIDER="mock"
-MENU_API_KEY=""
 MENU_CACHE_TTL_HOURS="24"
 MENU_MAX_RETRIES="3"
 MENU_MIN_REQUEST_INTERVAL_MS="250"

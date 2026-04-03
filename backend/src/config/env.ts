@@ -109,8 +109,6 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   corsOriginAllowlist: corsOriginAllowlistFromEnv(),
   googlePlacesApiKey: optionalWithSafeProductionValue('GOOGLE_PLACES_API_KEY'),
-  menuProvider: process.env.MENU_PROVIDER ?? 'mock',
-  menuApiKey: process.env.MENU_API_KEY ?? '',
   menuCacheTtlHours: positiveIntFromEnv('MENU_CACHE_TTL_HOURS', 24),
   menuMaxRetries: nonNegativeIntFromEnv('MENU_MAX_RETRIES', 3),
   menuMinRequestIntervalMs: nonNegativeIntFromEnv('MENU_MIN_REQUEST_INTERVAL_MS', 250),
