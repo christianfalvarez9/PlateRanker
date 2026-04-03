@@ -47,6 +47,24 @@ function nonNegativeIntFromEnv(key: string, fallback: number): number {
   return value;
 }
 
+function booleanFromEnv(key: string, fallback: boolean): boolean {
+  const raw = process.env[key];
+  if (raw === undefined || raw === '') {
+    return fallback;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
 function required(key: string, fallback?: string): string {
   const value = process.env[key] ?? fallback;
   if (!value) {
@@ -114,5 +132,10 @@ export const env = {
   menuMinRequestIntervalMs: nonNegativeIntFromEnv('MENU_MIN_REQUEST_INTERVAL_MS', 250),
   menuMaxConcurrency: positiveIntFromEnv('MENU_MAX_CONCURRENCY', 2),
   menuFailureCooldownMinutes: positiveIntFromEnv('MENU_FAILURE_COOLDOWN_MINUTES', 15),
+  dishPhotoBucketName: optionalWithSafeProductionValue('DISH_PHOTO_BUCKET_NAME'),
+  dishPhotoPublicBaseUrl: process.env.DISH_PHOTO_PUBLIC_BASE_URL?.trim() ?? '',
+  dishPhotoUploadMaxBytes: positiveIntFromEnv('DISH_PHOTO_UPLOAD_MAX_BYTES', 8 * 1024 * 1024),
   recipeApiKey: process.env.RECIPE_API_KEY ?? '',
+  recipeSearchCx: process.env.RECIPE_SEARCH_CX ?? '',
+  backgroundJobsEnabled: booleanFromEnv('BACKGROUND_JOBS_ENABLED', !isProduction),
 };

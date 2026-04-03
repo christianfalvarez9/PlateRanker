@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { NavBar } from '@/components/NavBar';
 import { apiRequest } from '@/lib/api';
@@ -16,14 +16,30 @@ type WantToVisitResponse = {
   };
 };
 
+const RADIUS_OPTIONS = [5, 10, 20, 50] as const;
+const RESULTS_PAGE_SIZE = 10;
+
+type RadiusMiles = (typeof RADIUS_OPTIONS)[number];
+
+type SearchContext = {
+  query: string;
+  lat?: number;
+  lng?: number;
+  mode: 'typed' | 'location';
+};
+
 export default function HomePage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Restaurant[]>([]);
   const [wantToVisitIds, setWantToVisitIds] = useState<Set<string>>(new Set());
+  const [radiusMiles, setRadiusMiles] = useState<RadiusMiles>(5);
+  const [visibleCount, setVisibleCount] = useState(RESULTS_PAGE_SIZE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wantToVisitSyncWarning, setWantToVisitSyncWarning] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [saveLoadingByRestaurantId, setSaveLoadingByRestaurantId] = useState<Record<string, boolean>>({});
+  const lastSearchContextRef = useRef<SearchContext | null>(null);
 
   const token = getToken();
 
@@ -39,24 +55,74 @@ export default function HomePage() {
         });
 
         setWantToVisitIds(new Set(entries.map((entry) => entry.restaurant.id)));
+        setWantToVisitSyncWarning(null);
       } catch {
-        // non-blocking for search page
+        setWantToVisitSyncWarning(
+          'Could not load your saved Want to Visit flags. You can still search and try toggling again.',
+        );
       }
     };
 
     void loadWantToVisit();
   }, [token]);
 
-  const runSearch = async (searchQuery: string, lat?: number, lng?: number) => {
-    const params = new URLSearchParams({ query: searchQuery });
-    if (lat !== undefined && lng !== undefined) {
-      params.set('lat', String(lat));
-      params.set('lng', String(lng));
+  const runSearch = async (context: SearchContext) => {
+    const params = new URLSearchParams({
+      query: context.query,
+      radiusMiles: String(radiusMiles),
+    });
+
+    if (context.lat !== undefined && context.lng !== undefined) {
+      params.set('lat', String(context.lat));
+      params.set('lng', String(context.lng));
     }
 
     const data = await apiRequest<Restaurant[]>(`/restaurants/search?${params.toString()}`);
     setResults(data);
+    setVisibleCount(RESULTS_PAGE_SIZE);
+    lastSearchContextRef.current = context;
   };
+
+  useEffect(() => {
+    const context = lastSearchContextRef.current;
+    if (!context) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const rerunSearchForRadius = async () => {
+      setError(null);
+
+      if (context.mode === 'location') {
+        setLocationLoading(true);
+      } else {
+        setLoading(true);
+      }
+
+      try {
+        await runSearch(context);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to refresh search for selected radius');
+        }
+      } finally {
+        if (!cancelled) {
+          if (context.mode === 'location') {
+            setLocationLoading(false);
+          } else {
+            setLoading(false);
+          }
+        }
+      }
+    };
+
+    void rerunSearchForRadius();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [radiusMiles]);
 
   const toggleWantToVisit = async (restaurantId: string) => {
     if (!token) {
@@ -68,6 +134,7 @@ export default function HomePage() {
 
     setSaveLoadingByRestaurantId((prev) => ({ ...prev, [restaurantId]: true }));
     setError(null);
+    setWantToVisitSyncWarning(null);
 
     try {
       if (isSaved) {
@@ -101,7 +168,10 @@ export default function HomePage() {
     setError(null);
 
     try {
-      await runSearch(query);
+      await runSearch({
+        query,
+        mode: 'typed',
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to search restaurants');
     } finally {
@@ -121,7 +191,12 @@ export default function HomePage() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
-          await runSearch(query || 'nearby restaurants', position.coords.latitude, position.coords.longitude);
+          await runSearch({
+            query: query.trim() || 'nearby restaurants',
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            mode: 'location',
+          });
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Failed to search near your location');
         } finally {
@@ -135,6 +210,9 @@ export default function HomePage() {
       { enableHighAccuracy: true, timeout: 8000 },
     );
   };
+
+  const visibleResults = results.slice(0, visibleCount);
+  const canLoadMore = visibleCount < results.length;
 
   return (
     <>
@@ -154,6 +232,28 @@ export default function HomePage() {
             placeholder="Try: 10001, New York, or a neighborhood"
             required
           />
+          <div className="flex items-center gap-2">
+            <label htmlFor="radiusMiles" className="text-sm whitespace-nowrap text-slate-300">
+              Radius
+            </label>
+            <select
+              id="radiusMiles"
+              className="app-select w-full min-w-[100px] sm:w-auto"
+              value={radiusMiles}
+              onChange={(event) => {
+                const nextRadius = Number(event.target.value);
+                if (RADIUS_OPTIONS.includes(nextRadius as RadiusMiles)) {
+                  setRadiusMiles(nextRadius as RadiusMiles);
+                }
+              }}
+            >
+              {RADIUS_OPTIONS.map((radiusOption) => (
+                <option key={radiusOption} value={radiusOption}>
+                  {radiusOption} miles
+                </option>
+              ))}
+            </select>
+          </div>
           <button className="app-btn-primary w-full sm:w-auto" disabled={loading}>
             {loading ? 'Searching...' : 'Search'}
           </button>
@@ -168,10 +268,11 @@ export default function HomePage() {
         </form>
 
         {error && <p className="app-error mt-3">{error}</p>}
+        {wantToVisitSyncWarning && <p className="app-error mt-3">{wantToVisitSyncWarning}</p>}
       </section>
 
       <section className="mt-6 grid gap-4 md:grid-cols-2">
-        {results.map((restaurant) => (
+        {visibleResults.map((restaurant) => (
           <article key={restaurant.id} className="app-card-soft">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <h2 className="text-lg font-semibold break-words">{restaurant.name}</h2>
@@ -189,21 +290,40 @@ export default function HomePage() {
               <Link className="app-btn-secondary w-full sm:w-auto" href={`/restaurants/${restaurant.id}`}>
                 View Restaurant
               </Link>
-              <button
-                className="app-btn-primary w-full sm:w-auto"
-                onClick={() => void toggleWantToVisit(restaurant.id)}
-                disabled={Boolean(saveLoadingByRestaurantId[restaurant.id])}
-              >
-                {saveLoadingByRestaurantId[restaurant.id]
-                  ? 'Saving...'
-                  : wantToVisitIds.has(restaurant.id)
-                    ? 'Saved to Want to Visit'
-                    : 'Want to Visit'}
-              </button>
+              {(() => {
+                const isSaved = wantToVisitIds.has(restaurant.id);
+
+                return (
+                  <button
+                    className={`w-full sm:w-auto ${isSaved ? 'app-btn-secondary' : 'app-btn-primary'}`}
+                    onClick={() => void toggleWantToVisit(restaurant.id)}
+                    disabled={Boolean(saveLoadingByRestaurantId[restaurant.id])}
+                    aria-pressed={isSaved}
+                  >
+                    {saveLoadingByRestaurantId[restaurant.id]
+                      ? 'Saving...'
+                      : isSaved
+                        ? '★ Want to Visit'
+                        : '☆ Want to Visit'}
+                  </button>
+                );
+              })()}
             </div>
           </article>
         ))}
       </section>
+
+      {canLoadMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            className="app-btn-secondary w-full sm:w-auto"
+            onClick={() => setVisibleCount((prev) => Math.min(prev + RESULTS_PAGE_SIZE, results.length))}
+          >
+            Load more restaurants
+          </button>
+        </div>
+      )}
     </>
   );
 }

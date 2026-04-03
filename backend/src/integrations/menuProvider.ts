@@ -18,7 +18,7 @@ export type FetchMenuInput = {
   googlePlacesRef?: string | null;
 };
 
-export type MenuProviderId = 'google-places';
+export type MenuProviderId = 'google-places' | 'website-scrape';
 
 export type ExternalMenuFetchResult = {
   provider: MenuProviderId;
@@ -37,18 +37,29 @@ type GooglePlaceDetailsResponse = {
   status?: string;
   error_message?: string;
   result?: {
-    editorial_summary?: {
-      overview?: string;
-    };
-    reviews?: Array<{
-      text?: string;
-    }>;
+    website?: string;
+    url?: string;
   };
 };
 
 let activeProviderRequests = 0;
 let lastProviderRequestAt = 0;
 const providerQueue: Array<() => void> = [];
+
+const MAX_MENU_ITEMS = 30;
+const MAX_HTML_BYTES = 2_000_000;
+const SCRAPE_TIMEOUT_MS = 9000;
+
+const MENU_PATH_CANDIDATES = [
+  '/',
+  '/menu',
+  '/menus',
+  '/food-menu',
+  '/our-menu',
+  '/dining/menu',
+  '/eat/menu',
+  '/order',
+];
 
 const DRINK_KEYWORDS = [
   'drink',
@@ -65,27 +76,26 @@ const DRINK_KEYWORDS = [
 ];
 
 const NON_MENU_TERMS = [
+  'menu',
+  'home',
+  'about',
+  'contact',
+  'privacy',
+  'terms',
+  'location',
+  'hours',
+  'order online',
+  'book now',
+  'reservation',
+  'sign in',
+  'create account',
+  'gift card',
+  'review',
+  'reviews',
   'restaurant',
   'service',
   'staff',
-  'waiter',
-  'waitress',
-  'ambience',
-  'atmosphere',
-  'experience',
-  'location',
-  'place',
-  'parking',
-  'price',
-  'portion',
-  'owner',
-  'manager',
-  'table',
-  'reservation',
-  'bathroom',
 ];
-
-const MAX_MENU_ITEMS = 30;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -169,9 +179,73 @@ function cleanItemName(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_match, group: string) => {
+      const codePoint = Number(group);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : '';
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_match, group: string) => {
+      const codePoint = parseInt(group, 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : '';
+    });
+}
+
+function stripTags(input: string): string {
+  return decodeHtmlEntities(input.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+function normalizeDishCandidate(candidate: string): string {
+  return cleanItemName(candidate)
+    .replace(/\$\s*\d+(?:\.\d{1,2})?/g, ' ')
+    .replace(/\b\d+(?:\.\d{1,2})?\s*(?:usd|dollars?)\b/gi, ' ')
+    .replace(/\b(?:add to cart|order now|learn more|read more)\b/gi, ' ')
+    .replace(/["'“”]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function looksLikeDrink(name: string): boolean {
   const lower = name.toLowerCase();
   return DRINK_KEYWORDS.some((keyword) => lower.includes(keyword));
+}
+
+function isLikelyDishCandidate(candidate: string): boolean {
+  if (!candidate) {
+    return false;
+  }
+
+  if (candidate.length < 3 || candidate.length > 80) {
+    return false;
+  }
+
+  const words = candidate.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 8) {
+    return false;
+  }
+
+  const lower = candidate.toLowerCase();
+
+  if (NON_MENU_TERMS.some((term) => lower.includes(term))) {
+    return false;
+  }
+
+  if (looksLikeDrink(candidate)) {
+    return false;
+  }
+
+  if (/https?:\/\//i.test(candidate) || /@/.test(candidate)) {
+    return false;
+  }
+
+  return /[a-z]/i.test(candidate);
 }
 
 function inferCategory(name: string): DishCategory {
@@ -233,7 +307,7 @@ function buildDeduplicationKey(name: string): string {
 function mapToExternalMenuItem(name: string): ExternalMenuItem | null {
   const cleanedName = cleanItemName(name);
 
-  if (cleanedName.length < 2 || looksLikeDrink(cleanedName)) {
+  if (!isLikelyDishCandidate(cleanedName)) {
     return null;
   }
 
@@ -260,79 +334,6 @@ function dedupeItems(items: ExternalMenuItem[]): ExternalMenuItem[] {
   }
 
   return deduped;
-}
-
-function normalizeDishCandidate(candidate: string): string {
-  return cleanItemName(candidate)
-    .replace(/^the\s+/i, '')
-    .replace(/\b(?:at|here|there|tonight|today)\b.*$/i, '')
-    .replace(/["'“”]+/g, '')
-    .trim();
-}
-
-function isLikelyDishCandidate(candidate: string): boolean {
-  if (!candidate) {
-    return false;
-  }
-
-  if (candidate.length < 3 || candidate.length > 60) {
-    return false;
-  }
-
-  const words = candidate.split(/\s+/).filter(Boolean);
-  if (words.length === 0 || words.length > 6) {
-    return false;
-  }
-
-  const lower = candidate.toLowerCase();
-  if (NON_MENU_TERMS.some((term) => lower.includes(term))) {
-    return false;
-  }
-
-  if (looksLikeDrink(candidate)) {
-    return false;
-  }
-
-  return /[a-z]/i.test(candidate);
-}
-
-function extractDishCandidatesFromText(text: string): string[] {
-  const rawCandidates: string[] = [];
-
-  for (const match of text.matchAll(/"([^"\n]{3,80})"/g)) {
-    rawCandidates.push(match[1]);
-  }
-
-  const patterns = [
-    /(?:ordered|had|got|tried|try|recommend(?:ed)?|loved?|favorite|best)\s+(?:the\s+)?([a-z][a-z0-9'&\- ]{2,80})/gi,
-    /(?:must\s+try|go\s+for)\s+(?:the\s+)?([a-z][a-z0-9'&\- ]{2,80})/gi,
-  ];
-
-  for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) {
-      rawCandidates.push(match[1]);
-    }
-  }
-
-  const seen = new Set<string>();
-  const candidates: string[] = [];
-
-  for (const raw of rawCandidates) {
-    const normalized = normalizeDishCandidate(raw);
-    if (!isLikelyDishCandidate(normalized)) {
-      continue;
-    }
-
-    const key = buildDeduplicationKey(normalized);
-    if (!key || seen.has(key)) {
-      continue;
-    }
-
-    seen.add(key);
-    candidates.push(normalized);
-  }
-
-  return candidates;
 }
 
 function assertGooglePlacesStatus(operation: string, status?: string, errorMessage?: string): void {
@@ -377,19 +378,19 @@ async function resolveGooglePlaceId(input: FetchMenuInput): Promise<string | nul
   return response.data.results?.[0]?.place_id ?? null;
 }
 
-async function fetchGooglePlacesMenuItems(input: FetchMenuInput): Promise<ExternalMenuItem[]> {
+async function resolveWebsiteFromGooglePlace(input: FetchMenuInput): Promise<string | null> {
   if (!env.googlePlacesApiKey) {
-    return [];
+    return null;
   }
 
   const placeId = await resolveGooglePlaceId(input);
   if (!placeId) {
-    return [];
+    return null;
   }
 
   const params = new URLSearchParams({
     place_id: placeId,
-    fields: 'reviews,editorial_summary',
+    fields: 'website,url',
     key: env.googlePlacesApiKey,
   });
 
@@ -401,29 +402,247 @@ async function fetchGooglePlacesMenuItems(input: FetchMenuInput): Promise<Extern
   );
 
   if (detailsResponse.data.status === 'NOT_FOUND') {
-    return [];
+    return null;
   }
 
   assertGooglePlacesStatus('details', detailsResponse.data.status, detailsResponse.data.error_message);
 
-  const textSources = [
-    detailsResponse.data.result?.editorial_summary?.overview ?? '',
-    ...(detailsResponse.data.result?.reviews ?? []).map((review) => review.text ?? ''),
-  ].filter(Boolean);
+  return detailsResponse.data.result?.website ?? detailsResponse.data.result?.url ?? null;
+}
 
-  const candidates = textSources.flatMap((text) => extractDishCandidatesFromText(text));
-  const mapped = candidates
-    .map((name) => mapToExternalMenuItem(name))
+function normalizeWebsiteUrl(rawUrl: string): URL | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    const url = new URL(withProtocol);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+
+    url.hash = '';
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function buildMenuCandidateUrls(rawWebsiteUrl: string): string[] {
+  const normalized = normalizeWebsiteUrl(rawWebsiteUrl);
+  if (!normalized) {
+    return [];
+  }
+
+  const baseOrigin = `${normalized.protocol}//${normalized.host}`;
+  const candidates = new Set<string>();
+
+  for (const path of MENU_PATH_CANDIDATES) {
+    candidates.add(new URL(path, baseOrigin).toString());
+  }
+
+  if (normalized.pathname && normalized.pathname !== '/') {
+    candidates.add(new URL(normalized.pathname, baseOrigin).toString());
+  }
+
+  return Array.from(candidates);
+}
+
+async function resolveWebsiteCandidates(input: FetchMenuInput): Promise<string[]> {
+  const websites = new Set<string>();
+
+  if (input.website) {
+    websites.add(input.website);
+  }
+
+  const googleResolvedWebsite = await resolveWebsiteFromGooglePlace(input).catch(() => null);
+  if (googleResolvedWebsite) {
+    websites.add(googleResolvedWebsite);
+  }
+
+  const candidateUrls = new Set<string>();
+  for (const website of websites) {
+    for (const candidate of buildMenuCandidateUrls(website)) {
+      candidateUrls.add(candidate);
+    }
+  }
+
+  return Array.from(candidateUrls);
+}
+
+async function fetchHtmlPage(url: string): Promise<string | null> {
+  try {
+    const response = await requestWithRetry(() =>
+      axios.get<string>(url, {
+        timeout: SCRAPE_TIMEOUT_MS,
+        responseType: 'text',
+        maxContentLength: MAX_HTML_BYTES,
+        maxBodyLength: MAX_HTML_BYTES,
+        headers: {
+          'User-Agent': 'PlateRankMenuBot/1.0 (+https://platerank.local)',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+      }),
+    );
+
+    const contentTypeHeader = response.headers['content-type'];
+    const contentType = Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader;
+
+    if (!contentType || !/text\/html|application\/xhtml\+xml/i.test(contentType)) {
+      return null;
+    }
+
+    return typeof response.data === 'string' ? response.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonLdPayload(payload: string): unknown[] {
+  const trimmed = payload.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
+function toTypeList(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  return [];
+}
+
+function collectMenuItemsFromJsonLd(node: unknown, sink: string[], inMenuContext = false): void {
+  if (Array.isArray(node)) {
+    node.forEach((item) => collectMenuItemsFromJsonLd(item, sink, inMenuContext));
+    return;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+
+  const record = node as Record<string, unknown>;
+  const types = toTypeList(record['@type']).map((type) => type.toLowerCase());
+
+  const isMenuContext =
+    inMenuContext ||
+    types.some((type) => type.includes('menu')) ||
+    'hasMenuItem' in record ||
+    'hasMenuSection' in record ||
+    'menu' in record ||
+    'itemListElement' in record;
+
+  const name = typeof record.name === 'string' ? normalizeDishCandidate(record.name) : '';
+  const hasMenuItemType = types.some((type) => type.includes('menuitem'));
+  const hasPriceLikeData = 'offers' in record || 'price' in record;
+
+  if (name && (hasMenuItemType || (isMenuContext && hasPriceLikeData))) {
+    sink.push(name);
+  }
+
+  for (const value of Object.values(record)) {
+    collectMenuItemsFromJsonLd(value, sink, isMenuContext);
+  }
+}
+
+function extractMenuCandidatesFromJsonLd(html: string): string[] {
+  const scriptRegex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  const candidates: string[] = [];
+
+  for (const match of html.matchAll(scriptRegex)) {
+    const payload = match[1] ?? '';
+    const parsedBlocks = parseJsonLdPayload(payload);
+    for (const parsed of parsedBlocks) {
+      collectMenuItemsFromJsonLd(parsed, candidates);
+    }
+  }
+
+  return candidates
+    .map((candidate) => normalizeDishCandidate(candidate))
+    .filter((candidate) => isLikelyDishCandidate(candidate));
+}
+
+function extractTaggedTextCandidates(html: string): string[] {
+  const stripped = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+
+  const menuBlockRegex =
+    /<(?:section|div|ul|ol)[^>]*(?:id|class)=["'][^"']*(?:menu|menus|food|dish|entree)[^"']*["'][^>]*>([\s\S]{0,120000}?)<\/(?:section|div|ul|ol)>/gi;
+  const tagRegex = /<(?:li|h2|h3|h4|p|span)[^>]*>([\s\S]*?)<\/(?:li|h2|h3|h4|p|span)>/gi;
+
+  const blocks = Array.from(stripped.matchAll(menuBlockRegex)).map((match) => match[1] ?? '');
+  const sources = blocks.length ? blocks : [stripped];
+
+  const candidates: string[] = [];
+
+  for (const source of sources) {
+    for (const match of source.matchAll(tagRegex)) {
+      const text = normalizeDishCandidate(stripTags(match[1] ?? ''));
+      if (isLikelyDishCandidate(text)) {
+        candidates.push(text);
+      }
+    }
+  }
+
+  return candidates;
+}
+
+async function fetchWebsiteMenuItems(input: FetchMenuInput): Promise<ExternalMenuItem[]> {
+  const candidateUrls = await resolveWebsiteCandidates(input);
+  if (!candidateUrls.length) {
+    return [];
+  }
+
+  const rawCandidates: string[] = [];
+
+  for (const url of candidateUrls) {
+    const html = await fetchHtmlPage(url);
+    if (!html) {
+      continue;
+    }
+
+    rawCandidates.push(...extractMenuCandidatesFromJsonLd(html));
+    rawCandidates.push(...extractTaggedTextCandidates(html));
+
+    if (rawCandidates.length >= MAX_MENU_ITEMS * 6) {
+      break;
+    }
+  }
+
+  const mapped = rawCandidates
+    .map((candidate) => mapToExternalMenuItem(candidate))
     .filter((item): item is ExternalMenuItem => Boolean(item));
 
   return dedupeItems(mapped).slice(0, MAX_MENU_ITEMS);
 }
 
+/**
+ * Google Places does not provide a reliable structured list of full menu items.
+ * We therefore never derive dishes from Google review/editorial text.
+ * Instead, we use Places metadata (website/place identity) and scrape menu pages.
+ */
 export async function fetchMenuForRestaurant(input: FetchMenuInput): Promise<ExternalMenuFetchResult> {
-  const items = await fetchGooglePlacesMenuItems(input);
+  const websiteItems = await fetchWebsiteMenuItems(input);
 
   return {
-    provider: 'google-places',
-    items,
+    provider: websiteItems.length ? 'website-scrape' : 'google-places',
+    items: websiteItems,
   };
 }

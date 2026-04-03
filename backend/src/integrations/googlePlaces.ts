@@ -22,6 +22,8 @@ type GooglePlaceTextSearchResponse = {
 };
 
 type GooglePlaceDetailResponse = {
+  status?: string;
+  error_message?: string;
   result?: {
     name?: string;
     formatted_address?: string;
@@ -30,8 +32,29 @@ type GooglePlaceDetailResponse = {
   };
 };
 
-const DEFAULT_SEARCH_RADIUS_METERS = 20_000;
-const MAX_SEARCH_RESULTS = 10;
+type GoogleGeocodeResponse = {
+  status?: string;
+  error_message?: string;
+  results?: Array<{
+    geometry?: {
+      location?: {
+        lat?: number;
+        lng?: number;
+      };
+    };
+  }>;
+};
+
+type LatLng = {
+  lat: number;
+  lng: number;
+};
+
+const DEFAULT_SEARCH_RADIUS_MILES = 5;
+const SUPPORTED_RADIUS_MILES = new Set([5, 10, 20, 50]);
+const MILES_TO_METERS = 1_609.34;
+const MAX_GOOGLE_RADIUS_METERS = 50_000;
+const MAX_SEARCH_RESULTS = 80;
 
 function isPostalCodeQuery(query: string): boolean {
   const trimmed = query.trim();
@@ -56,7 +79,7 @@ function buildRestaurantSearchQuery(query: string): string {
 }
 
 function assertGooglePlacesStatus(
-  operation: 'text search' | 'nearby search' | 'details',
+  operation: 'text search' | 'nearby search' | 'details' | 'geocode',
   status?: string,
   errorMessage?: string,
 ): void {
@@ -69,10 +92,77 @@ function assertGooglePlacesStatus(
   );
 }
 
+function normalizeRadiusMiles(radiusMiles?: number): number {
+  if (radiusMiles && SUPPORTED_RADIUS_MILES.has(radiusMiles)) {
+    return radiusMiles;
+  }
+
+  return DEFAULT_SEARCH_RADIUS_MILES;
+}
+
+function milesToMeters(miles: number): number {
+  return Math.round(miles * MILES_TO_METERS);
+}
+
+function offsetLatLng(origin: LatLng, northMeters: number, eastMeters: number): LatLng {
+  const earthRadiusMeters = 6_378_137;
+  const dLat = northMeters / earthRadiusMeters;
+  const cosLatitude = Math.max(0.01, Math.cos((origin.lat * Math.PI) / 180));
+  const dLng = eastMeters / (earthRadiusMeters * cosLatitude);
+
+  return {
+    lat: origin.lat + (dLat * 180) / Math.PI,
+    lng: origin.lng + (dLng * 180) / Math.PI,
+  };
+}
+
+function buildCoverageCenters(lat: number, lng: number, radiusMeters: number): Array<LatLng & { radiusMeters: number }> {
+  if (radiusMeters <= MAX_GOOGLE_RADIUS_METERS) {
+    return [{ lat, lng, radiusMeters }];
+  }
+
+  const offsetMeters = radiusMeters - MAX_GOOGLE_RADIUS_METERS;
+  const origin = { lat, lng };
+  const offsetPairs: Array<{ north: number; east: number }> = [
+    { north: 0, east: 0 },
+    { north: offsetMeters, east: 0 },
+    { north: -offsetMeters, east: 0 },
+    { north: 0, east: offsetMeters },
+    { north: 0, east: -offsetMeters },
+    { north: offsetMeters, east: offsetMeters },
+    { north: offsetMeters, east: -offsetMeters },
+    { north: -offsetMeters, east: offsetMeters },
+    { north: -offsetMeters, east: -offsetMeters },
+  ];
+
+  return offsetPairs.map((pair) => {
+    const shifted = offsetLatLng(origin, pair.north, pair.east);
+    return {
+      ...shifted,
+      radiusMeters: MAX_GOOGLE_RADIUS_METERS,
+    };
+  });
+}
+
+function dedupePlaceItems(items: GooglePlaceTextSearchItem[]): GooglePlaceTextSearchItem[] {
+  const byPlaceId = new Map<string, GooglePlaceTextSearchItem>();
+
+  for (const item of items) {
+    if (!item.place_id || byPlaceId.has(item.place_id)) {
+      continue;
+    }
+
+    byPlaceId.set(item.place_id, item);
+  }
+
+  return Array.from(byPlaceId.values());
+}
+
 async function textSearchPlaces(args: {
   query: string;
   lat?: number;
   lng?: number;
+  radiusMeters?: number;
 }): Promise<GooglePlaceTextSearchItem[]> {
   const params = new URLSearchParams({
     query: args.query,
@@ -81,20 +171,27 @@ async function textSearchPlaces(args: {
 
   if (args.lat !== undefined && args.lng !== undefined) {
     params.set('location', `${args.lat},${args.lng}`);
-    params.set('radius', String(DEFAULT_SEARCH_RADIUS_METERS));
+
+    if (args.radiusMeters !== undefined) {
+      params.set('radius', String(Math.min(args.radiusMeters, MAX_GOOGLE_RADIUS_METERS)));
+    }
   }
 
   const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`;
   const textSearch = await axios.get<GooglePlaceTextSearchResponse>(textSearchUrl);
 
   assertGooglePlacesStatus('text search', textSearch.data.status, textSearch.data.error_message);
-  return (textSearch.data.results ?? []).slice(0, MAX_SEARCH_RESULTS);
+  return textSearch.data.results ?? [];
 }
 
-async function nearbySearchPlaces(lat: number, lng: number): Promise<GooglePlaceTextSearchItem[]> {
+async function nearbySearchPlaces(args: {
+  lat: number;
+  lng: number;
+  radiusMeters: number;
+}): Promise<GooglePlaceTextSearchItem[]> {
   const nearbyParams = new URLSearchParams({
-    location: `${lat},${lng}`,
-    radius: String(DEFAULT_SEARCH_RADIUS_METERS),
+    location: `${args.lat},${args.lng}`,
+    radius: String(Math.min(args.radiusMeters, MAX_GOOGLE_RADIUS_METERS)),
     keyword: 'restaurant',
     key: env.googlePlacesApiKey,
   });
@@ -103,7 +200,33 @@ async function nearbySearchPlaces(lat: number, lng: number): Promise<GooglePlace
   const nearbySearch = await axios.get<GooglePlaceTextSearchResponse>(nearbyUrl);
 
   assertGooglePlacesStatus('nearby search', nearbySearch.data.status, nearbySearch.data.error_message);
-  return (nearbySearch.data.results ?? []).slice(0, MAX_SEARCH_RESULTS);
+  return nearbySearch.data.results ?? [];
+}
+
+async function geocodeQueryToLatLng(query: string): Promise<LatLng | null> {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const geocodeParams = new URLSearchParams({
+    address: trimmed,
+    key: env.googlePlacesApiKey,
+  });
+
+  const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?${geocodeParams.toString()}`;
+  const geocode = await axios.get<GoogleGeocodeResponse>(geocodeUrl);
+  assertGooglePlacesStatus('geocode', geocode.data.status, geocode.data.error_message);
+
+  const location = geocode.data.results?.[0]?.geometry?.location;
+  if (typeof location?.lat !== 'number' || typeof location?.lng !== 'number') {
+    return null;
+  }
+
+  return {
+    lat: location.lat,
+    lng: location.lng,
+  };
 }
 
 function fallbackMockResults(query: string): PlaceResult[] {
@@ -129,8 +252,11 @@ export async function searchGooglePlaces(args: {
   query: string;
   lat?: number;
   lng?: number;
+  radiusMiles?: number;
 }): Promise<PlaceResult[]> {
   const { query, lat, lng } = args;
+  const normalizedRadiusMiles = normalizeRadiusMiles(args.radiusMiles);
+  const radiusMeters = milesToMeters(normalizedRadiusMiles);
 
   if (!env.googlePlacesApiKey) {
     return fallbackMockResults(query);
@@ -139,15 +265,36 @@ export async function searchGooglePlaces(args: {
   const searchQuery = buildRestaurantSearchQuery(query);
   let places: GooglePlaceTextSearchItem[] = [];
 
-  if (lat !== undefined && lng !== undefined) {
-    places = await nearbySearchPlaces(lat, lng);
+  const resolvedLocation =
+    lat !== undefined && lng !== undefined ? { lat, lng } : await geocodeQueryToLatLng(query);
+
+  if (resolvedLocation) {
+    const centers = buildCoverageCenters(resolvedLocation.lat, resolvedLocation.lng, radiusMeters);
+    const nearbyResults = await Promise.all(
+      centers.map((center) =>
+        nearbySearchPlaces({
+          lat: center.lat,
+          lng: center.lng,
+          radiusMeters: center.radiusMeters,
+        }),
+      ),
+    );
+
+    places = dedupePlaceItems(nearbyResults.flat());
 
     if (!places.length) {
-      places = await textSearchPlaces({
-        query: searchQuery,
-        lat,
-        lng,
-      });
+      const fallbackTextResults = await Promise.all(
+        centers.map((center) =>
+          textSearchPlaces({
+            query: searchQuery,
+            lat: center.lat,
+            lng: center.lng,
+            radiusMeters: center.radiusMeters,
+          }),
+        ),
+      );
+
+      places = dedupePlaceItems(fallbackTextResults.flat());
     }
   } else {
     places = await textSearchPlaces({ query: searchQuery });
@@ -157,8 +304,10 @@ export async function searchGooglePlaces(args: {
     }
   }
 
+  const placesToEnrich = dedupePlaceItems(places).slice(0, MAX_SEARCH_RESULTS);
+
   const enriched = await Promise.all(
-    places.map(async (place) => {
+    placesToEnrich.map(async (place) => {
       const placeId = place.place_id;
       if (!placeId) {
         return null;
@@ -167,7 +316,7 @@ export async function searchGooglePlaces(args: {
       try {
         const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,formatted_phone_number,website&key=${env.googlePlacesApiKey}`;
         const detail = await axios.get<GooglePlaceDetailResponse>(detailUrl);
-        assertGooglePlacesStatus('details', (detail.data as GooglePlaceTextSearchResponse).status, (detail.data as GooglePlaceTextSearchResponse).error_message);
+        assertGooglePlacesStatus('details', detail.data.status, detail.data.error_message);
         const result = detail.data.result ?? {};
 
         const resolvedName = result.name ?? place.name ?? 'Unknown Restaurant';

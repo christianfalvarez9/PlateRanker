@@ -1,28 +1,83 @@
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../utils/http';
 
-type WantToVisitRestaurant = {
-  id: string;
-  name: string;
-  address: string;
-  overallRating: number | null;
-  foodRating: number | null;
-  highRepeatCustomersBadge: boolean;
-};
+async function listDashboardReviews(userId: string) {
+  return prisma.review.findMany({
+    where: { userId },
+    include: {
+      dish: {
+        select: {
+          id: true,
+          name: true,
+          category: true,
+        },
+      },
+      restaurant: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+  });
+}
 
-type WantToVisitRecord = {
-  id: string;
-  createdAt: Date;
-  restaurant: WantToVisitRestaurant;
-};
+function buildDashboardInsights(reviews: Awaited<ReturnType<typeof listDashboardReviews>>) {
+  const highestRatedDishes = [...reviews]
+    .sort((a, b) => b.dishScore - a.dishScore)
+    .slice(0, 5)
+    .map((review) => ({
+      reviewId: review.id,
+      dishName: review.dish.name,
+      restaurantName: review.restaurant.name,
+      dishScore: review.dishScore,
+      reviewedAt: review.createdAt,
+    }));
 
-const prismaWithWantToVisit = prisma as unknown as {
-  wantToVisit: {
-    findMany: (args: unknown) => Promise<WantToVisitRecord[]>;
-    upsert: (args: unknown) => Promise<WantToVisitRecord>;
-    deleteMany: (args: unknown) => Promise<{ count: number }>;
+  const restaurantMap = new Map<string, { restaurantName: string; total: number; count: number }>();
+  for (const review of reviews) {
+    const current = restaurantMap.get(review.restaurantId) ?? {
+      restaurantName: review.restaurant.name,
+      total: 0,
+      count: 0,
+    };
+
+    current.total += review.dishScore;
+    current.count += 1;
+    restaurantMap.set(review.restaurantId, current);
+  }
+
+  const highestRatedRestaurants = [...restaurantMap.entries()]
+    .map(([restaurantId, value]) => ({
+      restaurantId,
+      restaurantName: value.restaurantName,
+      averageScore: value.total / value.count,
+      reviewCount: value.count,
+    }))
+    .sort((a, b) => b.averageScore - a.averageScore)
+    .slice(0, 5);
+
+  const recentReviews = reviews.slice(0, 10).map((review) => ({
+    id: review.id,
+    dishScore: review.dishScore,
+    dish: {
+      name: review.dish.name,
+    },
+    restaurant: {
+      name: review.restaurant.name,
+    },
+    createdAt: review.createdAt,
+  }));
+
+  return {
+    highestRatedDishes,
+    highestRatedRestaurants,
+    recentReviews,
   };
-};
+}
 
 export async function getUserReviews(userId: string, requesterId: string) {
   if (userId !== requesterId) {
@@ -59,51 +114,10 @@ export async function getUserDashboard(userId: string, requesterId: string) {
     throw new HttpError(403, 'Cannot view another user\'s dashboard');
   }
 
-  const reviews = await prisma.review.findMany({
-    where: { userId },
-    include: {
-      dish: true,
-      restaurant: true,
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-  });
+  const reviews = await listDashboardReviews(userId);
+  const insights = buildDashboardInsights(reviews);
 
-  const highestRatedDishes = [...reviews]
-    .sort((a, b) => b.dishScore - a.dishScore)
-    .slice(0, 5)
-    .map((r) => ({
-      reviewId: r.id,
-      dishName: r.dish.name,
-      restaurantName: r.restaurant.name,
-      dishScore: r.dishScore,
-      reviewedAt: r.createdAt,
-    }));
-
-  const restaurantMap = new Map<string, { restaurantName: string; total: number; count: number }>();
-  for (const review of reviews) {
-    const current = restaurantMap.get(review.restaurantId) ?? {
-      restaurantName: review.restaurant.name,
-      total: 0,
-      count: 0,
-    };
-    current.total += review.dishScore;
-    current.count += 1;
-    restaurantMap.set(review.restaurantId, current);
-  }
-
-  const highestRatedRestaurants = [...restaurantMap.entries()]
-    .map(([restaurantId, value]) => ({
-      restaurantId,
-      restaurantName: value.restaurantName,
-      averageScore: value.total / value.count,
-      reviewCount: value.count,
-    }))
-    .sort((a, b) => b.averageScore - a.averageScore)
-    .slice(0, 5);
-
-  const wantToVisit = await prismaWithWantToVisit.wantToVisit.findMany({
+  const wantToVisit = await prisma.wantToVisit.findMany({
     where: { userId },
     include: {
       restaurant: {
@@ -122,15 +136,65 @@ export async function getUserDashboard(userId: string, requesterId: string) {
     },
   });
 
+  const savedRecipes = await prisma.savedRecipe.findMany({
+    where: { userId },
+    include: {
+      dish: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      restaurant: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: 'desc',
+    },
+    take: 30,
+  });
+
   return {
-    highestRatedDishes,
-    highestRatedRestaurants,
-    recentReviews: reviews.slice(0, 10),
+    ...insights,
     wantToVisit: wantToVisit.map((entry) => ({
       id: entry.id,
       createdAt: entry.createdAt,
       restaurant: entry.restaurant,
     })),
+    savedRecipes: savedRecipes.map((entry) => ({
+      id: entry.id,
+      title: entry.title,
+      link: entry.link,
+      createdAt: entry.createdAt,
+      dish: entry.dish,
+      restaurant: entry.restaurant,
+    })),
+  };
+}
+
+export async function getPublicUserDashboard(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      name: true,
+    },
+  });
+
+  if (!user) {
+    throw new HttpError(404, 'User not found');
+  }
+
+  const reviews = await listDashboardReviews(userId);
+  const insights = buildDashboardInsights(reviews);
+
+  return {
+    user,
+    ...insights,
   };
 }
 
@@ -161,7 +225,7 @@ export async function addWantToVisitRestaurant(userId: string, restaurantId: str
     throw new HttpError(404, 'Restaurant not found');
   }
 
-  const entry = await prismaWithWantToVisit.wantToVisit.upsert({
+  const entry = await prisma.wantToVisit.upsert({
     where: {
       userId_restaurantId: {
         userId,
@@ -195,7 +259,7 @@ export async function addWantToVisitRestaurant(userId: string, restaurantId: str
 }
 
 export async function removeWantToVisitRestaurant(userId: string, restaurantId: string) {
-  await prismaWithWantToVisit.wantToVisit.deleteMany({
+  await prisma.wantToVisit.deleteMany({
     where: {
       userId,
       restaurantId,
@@ -206,7 +270,7 @@ export async function removeWantToVisitRestaurant(userId: string, restaurantId: 
 }
 
 export async function listWantToVisitRestaurants(userId: string) {
-  const entries = await prismaWithWantToVisit.wantToVisit.findMany({
+  const entries = await prisma.wantToVisit.findMany({
     where: { userId },
     include: {
       restaurant: {

@@ -12,6 +12,8 @@ async function runDailyBadgeRefresh() {
   }
 }
 
+export { runDailyBadgeRefresh };
+
 export function startBackgroundJobs() {
   cron.schedule('0 3 * * *', async () => {
     try {

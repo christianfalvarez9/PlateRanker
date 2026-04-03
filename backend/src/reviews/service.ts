@@ -5,6 +5,11 @@ import { calculateDishScore } from '../utils/ratings';
 import { recomputeRestaurantRatings } from '../restaurants/ratings';
 import { findRecipeMatch, RecipeMatch } from '../integrations/recipeProvider';
 
+function normalizeOptionalText(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 type CreateReviewInput = {
   userId: string;
   restaurantId: string;
@@ -37,6 +42,34 @@ type CreateMealReviewInput = {
 };
 
 type ReviewWithRelations = Awaited<ReturnType<typeof prisma.review.create>>;
+
+async function upsertSavedRecipe(args: {
+  userId: string;
+  restaurantId: string;
+  dishId: string;
+  recipe: RecipeMatch;
+}): Promise<void> {
+  await prisma.savedRecipe.upsert({
+    where: {
+      userId_dishId_link: {
+        userId: args.userId,
+        dishId: args.dishId,
+        link: args.recipe.link,
+      },
+    },
+    update: {
+      title: args.recipe.title,
+      restaurantId: args.restaurantId,
+    },
+    create: {
+      userId: args.userId,
+      restaurantId: args.restaurantId,
+      dishId: args.dishId,
+      title: args.recipe.title,
+      link: args.recipe.link,
+    },
+  });
+}
 
 export async function createReview(
   input: CreateReviewInput,
@@ -90,7 +123,7 @@ export async function createReview(
       presentationScore: input.presentationScore,
       dishScore,
       category: dish.category,
-      reviewText: input.reviewText,
+      reviewText: normalizeOptionalText(input.reviewText),
       imageUrl: input.imageUrl,
     },
     include: {
@@ -119,6 +152,15 @@ export async function createReview(
   let recipeMatch: RecipeMatch | null = null;
   if (dishScore >= 8 && user.recipeMatchEnabled) {
     recipeMatch = await findRecipeMatch(dish.name);
+
+    if (recipeMatch) {
+      await upsertSavedRecipe({
+        userId: input.userId,
+        restaurantId: input.restaurantId,
+        dishId: dish.id,
+        recipe: recipeMatch,
+      });
+    }
   }
 
   return {
@@ -203,7 +245,7 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
         serviceScore: input.serviceScore,
         atmosphereScore: input.atmosphereScore,
         valueScore: input.valueScore,
-        reviewText: input.reviewText,
+        reviewText: normalizeOptionalText(input.reviewText),
         imageUrl: input.imageUrl,
       },
     });
@@ -234,7 +276,7 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
           presentationScore: dishInput.presentationScore,
           dishScore,
           category: dish.category,
-          reviewText: dishInput.reviewText,
+          reviewText: normalizeOptionalText(dishInput.reviewText),
           imageUrl: dishInput.imageUrl,
         },
       });
@@ -268,11 +310,31 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
           if (!dish) {
             return null;
           }
-          return findRecipeMatch(dish.name);
+
+          const recipe = await findRecipeMatch(dish.name);
+          if (!recipe) {
+            return null;
+          }
+
+          await upsertSavedRecipe({
+            userId: input.userId,
+            restaurantId: input.restaurantId,
+            dishId: dish.id,
+            recipe,
+          });
+
+          return recipe;
         }),
     );
 
-    recipeMatches = matched.filter((item): item is RecipeMatch => item !== null);
+    const uniqueByLink = new Map<string, RecipeMatch>();
+    for (const recipe of matched.filter((item): item is RecipeMatch => item !== null)) {
+      if (!uniqueByLink.has(recipe.link)) {
+        uniqueByLink.set(recipe.link, recipe);
+      }
+    }
+
+    recipeMatches = Array.from(uniqueByLink.values());
   }
 
   const mealReviewWithDishReviews = await prisma.mealReview.findUniqueOrThrow({

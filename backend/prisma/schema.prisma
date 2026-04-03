@@ -41,6 +41,7 @@ model User {
   reviews            Review[]
   visits             Visit[]
   wantToVisitEntries WantToVisit[]
+  savedRecipes       SavedRecipe[]
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
@@ -64,6 +65,7 @@ model Restaurant {
   reviews                    Review[]
   visits                     Visit[]
   wantedByUsers              WantToVisit[]
+  savedRecipes               SavedRecipe[]
   menuSyncState              MenuSyncState?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
@@ -83,6 +85,7 @@ model Dish {
   isActive             Boolean      @default(true)
   source               DishSource   @default(API)
   reviews              Review[]
+  savedRecipes         SavedRecipe[]
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
@@ -175,4 +178,21 @@ model WantToVisit {
 
   @@unique([userId, restaurantId])
   @@index([userId, createdAt])
+}
+
+model SavedRecipe {
+  id           String     @id @default(uuid())
+  userId       String
+  restaurantId String
+  dishId       String
+  title        String
+  link         String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  dish         Dish       @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, dishId, link])
+  @@index([userId, createdAt])
+  @@index([dishId])
 }

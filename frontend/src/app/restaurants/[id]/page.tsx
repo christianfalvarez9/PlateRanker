@@ -27,6 +27,12 @@ type DishReviewDraft = {
   reviewText: string;
 };
 
+type DishPhotoUploadState = {
+  uploading: boolean;
+  error: string | null;
+  fileName: string | null;
+};
+
 const DISH_COURSES: DishCategory[] = ['APPETIZER', 'ENTREE', 'SIDE', 'DESSERT'];
 
 const DISH_COURSE_LABEL: Record<DishCategory, string> = {
@@ -38,7 +44,6 @@ const DISH_COURSE_LABEL: Record<DishCategory, string> = {
 
 type RecipeMatch = {
   title: string;
-  image: string;
   link: string;
 };
 
@@ -161,6 +166,38 @@ type MenuSyncResponse = {
   nextAllowedAt?: string;
 };
 
+type UploadDishPhotoResponse = {
+  imageUrl: string;
+  objectPath: string;
+};
+
+function normalizeWebsiteUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
+}
+
+function normalizePhoneForTel(phone: string): string {
+  const trimmed = phone.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) {
+    return '';
+  }
+
+  return trimmed.startsWith('+') ? `+${digits}` : digits;
+}
+
 export default function RestaurantProfilePage() {
   const params = useParams<{ id: string }>();
   const restaurantId = params.id;
@@ -190,6 +227,8 @@ export default function RestaurantProfilePage() {
   const [selectedDishDetails, setSelectedDishDetails] = useState<DishDetailsResponse | null>(null);
   const [dishDetailsLoading, setDishDetailsLoading] = useState(false);
   const [dishImageUrls, setDishImageUrls] = useState<Record<string, string>>({});
+  const [dishPhotoUploadStates, setDishPhotoUploadStates] = useState<Record<string, DishPhotoUploadState>>({});
+  const [showDishPhotos, setShowDishPhotos] = useState(false);
   const menuSyncInFlight = useRef(false);
   const reviewsEmptySyncAttemptedRef = useRef(false);
 
@@ -364,6 +403,7 @@ export default function RestaurantProfilePage() {
   const openDishDetails = async (dishId: string) => {
     setDishDetailsLoading(true);
     setSelectedDishDetails(null);
+    setShowDishPhotos(false);
 
     try {
       const details = await apiRequest<DishDetailsResponse>(`/restaurants/${restaurantId}/menu/${dishId}`);
@@ -402,6 +442,57 @@ export default function RestaurantProfilePage() {
 
   const removeDishFromMeal = (dishId: string) => {
     setSelectedDishIds((previous) => previous.filter((id) => id !== dishId));
+  };
+
+  const setDishUploadState = (dishId: string, updates: Partial<DishPhotoUploadState>) => {
+    setDishPhotoUploadStates((previous) => ({
+      ...previous,
+      [dishId]: {
+        uploading: previous[dishId]?.uploading ?? false,
+        error: previous[dishId]?.error ?? null,
+        fileName: previous[dishId]?.fileName ?? null,
+        ...updates,
+      },
+    }));
+  };
+
+  const uploadDishPhotoFile = async (dishId: string, file: File) => {
+    if (!token) {
+      setMessage('Please login first to upload dish photos.');
+      return;
+    }
+
+    setDishUploadState(dishId, {
+      uploading: true,
+      error: null,
+      fileName: file.name,
+    });
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const uploaded = await apiRequest<UploadDishPhotoResponse>('/uploads/dish-photo', {
+        method: 'POST',
+        token,
+        body: formData,
+      });
+
+      setDishImageUrls((previous) => ({
+        ...previous,
+        [dishId]: uploaded.imageUrl,
+      }));
+
+      setDishUploadState(dishId, {
+        uploading: false,
+        error: null,
+      });
+    } catch (err) {
+      setDishUploadState(dishId, {
+        uploading: false,
+        error: err instanceof Error ? err.message : 'Failed to upload image',
+      });
+    }
   };
 
   const submitMealReview = async (event: FormEvent) => {
@@ -461,6 +552,13 @@ export default function RestaurantProfilePage() {
         return next;
       });
       setDishImageUrls((prev) => {
+        const next = { ...prev };
+        selectedDishIds.forEach((dishId) => {
+          delete next[dishId];
+        });
+        return next;
+      });
+      setDishPhotoUploadStates((prev) => {
         const next = { ...prev };
         selectedDishIds.forEach((dishId) => {
           delete next[dishId];
@@ -542,6 +640,8 @@ export default function RestaurantProfilePage() {
   }
 
   const { restaurant } = data;
+  const websiteHref = restaurant.website ? normalizeWebsiteUrl(restaurant.website) : '';
+  const phoneHref = restaurant.phone ? normalizePhoneForTel(restaurant.phone) : '';
 
   return (
     <>
@@ -553,7 +653,29 @@ export default function RestaurantProfilePage() {
             <h1 className="app-title break-words">{restaurant.name}</h1>
             <p className="app-muted break-words">{restaurant.address}</p>
             <p className="app-muted break-all text-sm">
-              {restaurant.phone ?? 'No phone'} · {restaurant.website ?? 'No website'}
+              {restaurant.phone && phoneHref ? (
+                <a
+                  href={`tel:${phoneHref}`}
+                  className="text-teal-300 underline hover:text-teal-200"
+                >
+                  {restaurant.phone}
+                </a>
+              ) : (
+                'No phone'
+              )}{' '}
+              ·{' '}
+              {restaurant.website && websiteHref ? (
+                <a
+                  href={websiteHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-teal-300 underline hover:text-teal-200"
+                >
+                  {restaurant.website}
+                </a>
+              ) : (
+                'No website'
+              )}
             </p>
           </div>
 
@@ -826,6 +948,7 @@ export default function RestaurantProfilePage() {
               <div className="space-y-3">
                 {selectedDishes.map((dish) => {
                   const draft = dishDrafts[dish.id] ?? createDefaultDishDraft();
+                  const uploadState = dishPhotoUploadStates[dish.id];
 
                   return (
                     <div key={dish.id} className="app-list-item">
@@ -890,26 +1013,55 @@ export default function RestaurantProfilePage() {
                         </label>
                       </div>
 
-                      <textarea
-                        className="app-textarea mt-2 text-sm"
-                        rows={2}
-                        placeholder="Optional note for this dish"
-                        value={draft.reviewText}
-                        onChange={(e) => updateDishDraft(dish.id, 'reviewText', e.target.value)}
-                      />
+                      <label className="mt-2 block text-sm text-slate-300">
+                        Optional dish review
+                        <textarea
+                          className="app-textarea mt-1 text-sm"
+                          rows={2}
+                          placeholder="Optional: share what stood out about this dish"
+                          value={draft.reviewText}
+                          onChange={(e) => updateDishDraft(dish.id, 'reviewText', e.target.value)}
+                        />
+                      </label>
 
-                      <input
-                        className="app-input mt-2"
-                        type="url"
-                        placeholder="Optional dish photo URL"
-                        value={dishImageUrls[dish.id] ?? ''}
-                        onChange={(e) =>
-                          setDishImageUrls((prev) => ({
-                            ...prev,
-                            [dish.id]: e.target.value,
-                          }))
-                        }
-                      />
+                      <label className="mt-2 block text-sm text-slate-300">
+                        Optional dish photo (camera or camera roll)
+                        <input
+                          className="app-input mt-1"
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) {
+                              return;
+                            }
+
+                            void uploadDishPhotoFile(dish.id, file);
+                            event.currentTarget.value = '';
+                          }}
+                        />
+                      </label>
+
+                      <div className="mt-1 text-xs">
+                        {uploadState?.uploading && <p className="text-slate-400">Uploading photo...</p>}
+                        {!uploadState?.uploading && dishImageUrls[dish.id] && (
+                          <p className="text-emerald-300 break-all">
+                            Photo attached{uploadState?.fileName ? `: ${uploadState.fileName}` : ''}
+                          </p>
+                        )}
+                        {uploadState?.error && <p className="text-rose-300">{uploadState.error}</p>}
+                      </div>
+
+                      {dishImageUrls[dish.id] && (
+                        <a
+                          href={dishImageUrls[dish.id]}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-block text-xs text-teal-200 underline break-all"
+                        >
+                          Preview attached photo
+                        </a>
+                      )}
                     </div>
                   );
                 })}
@@ -996,23 +1148,56 @@ export default function RestaurantProfilePage() {
                 {selectedDishDetails.aggregates.avgCost?.toFixed(2) ?? 'N/A'} · Presentation:{' '}
                 {selectedDishDetails.aggregates.avgPresentation?.toFixed(2) ?? 'N/A'}
               </p>
-              <p className="app-muted">{selectedDishDetails.summary}</p>
+              <div className="rounded-xl border border-teal-400/30 bg-teal-400/10 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-teal-200">Community summary</p>
+                <p className="mt-1 text-sm text-slate-100">{selectedDishDetails.summary}</p>
+                <p className="mt-2 text-xs text-slate-400">
+                  Auto-generated from all submitted dish reviews and kept up to date as new reviews come in.
+                </p>
+              </div>
 
-              {selectedDishDetails.photos.length > 0 && (
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {selectedDishDetails.photos.map((photoUrl) => (
-                    <a
-                      key={photoUrl}
-                      href={photoUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="app-list-item break-all text-xs text-teal-200 hover:text-teal-100"
-                    >
-                      {photoUrl}
-                    </a>
-                  ))}
+              <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Dish photos</p>
+                  <button
+                    type="button"
+                    className="app-btn-secondary px-3 py-1 text-xs"
+                    onClick={() => setShowDishPhotos((previous) => !previous)}
+                  >
+                    {showDishPhotos
+                      ? 'Hide photos'
+                      : `Show photos (${selectedDishDetails.photos.length})`}
+                  </button>
                 </div>
-              )}
+
+                {showDishPhotos && (
+                  <div className="mt-3">
+                    {selectedDishDetails.photos.length ? (
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {selectedDishDetails.photos.map((photoUrl) => (
+                          <a
+                            key={photoUrl}
+                            href={photoUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="app-list-item overflow-hidden"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={photoUrl}
+                              alt={`Dish photo for ${selectedDishDetails.dish.name}`}
+                              className="h-36 w-full rounded-lg object-cover"
+                            />
+                            <p className="mt-2 break-all text-xs text-teal-200">Open full image</p>
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="app-muted text-xs">No dish photos have been uploaded yet.</p>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <ul className="space-y-2">
                 {selectedDishDetails.recentReviews.map((review) => (

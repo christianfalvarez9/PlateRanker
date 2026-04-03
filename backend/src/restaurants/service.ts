@@ -8,6 +8,79 @@ function roundToTwo(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function ratingSortValue(value: number | null): number {
+  return value ?? Number.NEGATIVE_INFINITY;
+}
+
+const REVIEW_THEMES: Array<{ label: string; matchers: RegExp[] }> = [
+  {
+    label: 'flavor and seasoning',
+    matchers: [/\bflavo?r\b/i, /\btaste\b/i, /\bseason\w*/i, /\bsalt\w*/i, /\bspice\w*/i],
+  },
+  {
+    label: 'portion size',
+    matchers: [/\bportion\b/i, /\bserving\b/i, /\bsize\b/i, /\bfilling\b/i, /\bsmall\b/i],
+  },
+  {
+    label: 'value for price',
+    matchers: [/\bvalue\b/i, /\bprice\b/i, /\bcost\b/i, /\bexpensive\b/i, /\boverpriced\b/i],
+  },
+  {
+    label: 'presentation',
+    matchers: [/\bpresent\w*/i, /\bplating\b/i, /\bvisual\b/i, /\blooks?\b/i],
+  },
+  {
+    label: 'texture and freshness',
+    matchers: [/\btexture\b/i, /\bfresh\w*/i, /\bcrispy\b/i, /\btender\b/i, /\bjuicy\b/i],
+  },
+];
+
+function cleanReviewTextForSummary(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function pickDominantTheme(reviewTexts: string[]): string | null {
+  const counts = REVIEW_THEMES.map((theme) => ({
+    label: theme.label,
+    count: 0,
+  }));
+
+  for (const text of reviewTexts) {
+    for (let index = 0; index < REVIEW_THEMES.length; index += 1) {
+      const theme = REVIEW_THEMES[index];
+      if (theme.matchers.some((matcher) => matcher.test(text))) {
+        counts[index].count += 1;
+      }
+    }
+  }
+
+  const top = counts.sort((a, b) => b.count - a.count)[0];
+  if (!top || top.count === 0) {
+    return null;
+  }
+
+  return top.label;
+}
+
+function pickRepresentativeSnippet(reviewTexts: string[]): string | null {
+  const candidate = reviewTexts.find((text) => text.length >= 18) ?? reviewTexts[0] ?? null;
+  if (!candidate) {
+    return null;
+  }
+
+  const normalized = cleanReviewTextForSummary(candidate).replace(/[.!?]/g, '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const maxChars = 90;
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxChars).trimEnd()}…`;
+}
+
 function summarizeDishReviews(input: {
   reviewCount: number;
   avgDishScore: number | null;
@@ -21,6 +94,8 @@ function summarizeDishReviews(input: {
     return 'No reviews yet for this dish.';
   }
 
+  const normalizedReviewTexts = input.reviewTexts.map(cleanReviewTextForSummary).filter(Boolean);
+
   const criteria = [
     { label: 'taste', value: input.avgTaste ?? 0 },
     { label: 'portion', value: input.avgPortion ?? 0 },
@@ -31,20 +106,30 @@ function summarizeDishReviews(input: {
   const strongest = criteria[0];
   const weakest = criteria[criteria.length - 1];
   const overall = input.avgDishScore ?? 0;
-  const reviewSignal =
-    input.reviewTexts.find((text) => text.length >= 20)?.slice(0, 180) ??
-    'Users are still adding detailed notes for this dish.';
+  const dominantTheme = pickDominantTheme(normalizedReviewTexts);
+  const representativeSnippet = pickRepresentativeSnippet(normalizedReviewTexts);
 
-  return `${input.reviewCount} review${input.reviewCount === 1 ? '' : 's'} average ${roundToTwo(
+  const firstSentence = `${input.reviewCount} review${input.reviewCount === 1 ? '' : 's'} average ${roundToTwo(
     overall,
-  )}/10. Strongest feedback is ${strongest.label} (${roundToTwo(
+  )}/10, with strongest scores in ${strongest.label} (${roundToTwo(
     strongest.value,
-  )}/10), while ${weakest.label} is comparatively lower (${roundToTwo(
-    weakest.value,
-  )}/10). Common sentiment: ${reviewSignal}`;
+  )}/10) and lower scores in ${weakest.label} (${roundToTwo(weakest.value)}/10).`;
+
+  const secondSentence = dominantTheme
+    ? `Across all submitted reviews, the most common feedback theme is ${dominantTheme}.`
+    : representativeSnippet
+      ? `Across all submitted reviews, diners often mention "${representativeSnippet}."`
+      : 'As more written reviews are added, this summary will stay updated automatically.';
+
+  return `${firstSentence} ${secondSentence}`;
 }
 
-export async function searchRestaurants(args: { query: string; lat?: number; lng?: number }) {
+export async function searchRestaurants(args: {
+  query: string;
+  lat?: number;
+  lng?: number;
+  radiusMiles?: number;
+}) {
   const places = await searchGooglePlaces(args);
 
   const records = await Promise.all(
@@ -72,7 +157,19 @@ export async function searchRestaurants(args: { query: string; lat?: number; lng
     }),
   );
 
-  return records;
+  return [...records].sort((a, b) => {
+    const overallDiff = ratingSortValue(b.overallRating) - ratingSortValue(a.overallRating);
+    if (overallDiff !== 0) {
+      return overallDiff;
+    }
+
+    const foodDiff = ratingSortValue(b.foodRating) - ratingSortValue(a.foodRating);
+    if (foodDiff !== 0) {
+      return foodDiff;
+    }
+
+    return a.name.localeCompare(b.name);
+  });
 }
 
 export async function getRestaurantProfile(restaurantId: string) {
@@ -209,7 +306,7 @@ export async function getDishDetails(restaurantId: string, dishId: string) {
     throw new HttpError(404, 'Dish not found');
   }
 
-  const [aggregates, recentReviews] = await Promise.all([
+  const [aggregates, recentReviews, allReviewTexts, allReviewImages] = await Promise.all([
     prisma.review.aggregate({
       where: { dishId },
       _avg: {
@@ -245,14 +342,42 @@ export async function getDishDetails(restaurantId: string, dishId: string) {
         },
       },
     }),
+    prisma.review.findMany({
+      where: {
+        dishId,
+        reviewText: {
+          not: null,
+        },
+      },
+      select: {
+        reviewText: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    }),
+    prisma.review.findMany({
+      where: {
+        dishId,
+        imageUrl: {
+          not: null,
+        },
+      },
+      select: {
+        imageUrl: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    }),
   ]);
 
-  const reviewTexts = recentReviews
+  const reviewTexts = allReviewTexts
     .map((review) => review.reviewText?.trim() ?? '')
     .filter((text) => Boolean(text));
 
   const photoUrls = Array.from(
-    new Set(recentReviews.map((review) => review.imageUrl ?? '').filter((url) => Boolean(url))),
+    new Set(allReviewImages.map((review) => review.imageUrl ?? '').filter((url) => Boolean(url))),
   );
 
   return {

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { NavBar } from '@/components/NavBar';
@@ -29,6 +30,20 @@ type DashboardResponse = {
     createdAt: string;
   }>;
   wantToVisit: WantToVisitEntry[];
+  savedRecipes: Array<{
+    id: string;
+    title: string;
+    link: string;
+    createdAt: string;
+    dish: {
+      id: string;
+      name: string;
+    };
+    restaurant: {
+      id: string;
+      name: string;
+    };
+  }>;
 };
 
 type UserResponse = {
@@ -37,6 +52,16 @@ type UserResponse = {
   email: string;
   recipeMatchEnabled: boolean;
 };
+
+function resolvePublicDashboardUrl(userId: string): string {
+  const path = `/dashboard/shared/${userId}`;
+
+  if (typeof window === 'undefined') {
+    return path;
+  }
+
+  return `${window.location.origin}${path}`;
+}
 
 function DashboardPageContent() {
   const params = useSearchParams();
@@ -49,6 +74,7 @@ function DashboardPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -97,6 +123,41 @@ function DashboardPageContent() {
     }
   };
 
+  const shareDashboard = async () => {
+    if (!userId) {
+      return;
+    }
+
+    const shareUrl = resolvePublicDashboardUrl(userId);
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: `${viewer?.name ?? 'PlateRank'} dashboard`,
+          text: 'Check out this PlateRank dashboard',
+          url: shareUrl,
+        });
+        return;
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareMessage('Share link copied to clipboard.');
+        return;
+      }
+
+      setShareMessage(`Share this link: ${shareUrl}`);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+
+      setShareMessage(err instanceof Error ? err.message : 'Unable to share dashboard right now.');
+    }
+  };
+
+  const publicDashboardPath = userId ? `/dashboard/shared/${userId}` : '';
+
   return (
     <>
       <NavBar />
@@ -107,7 +168,21 @@ function DashboardPageContent() {
           <button className="app-btn-secondary w-full px-3 py-1.5 sm:w-auto" onClick={toggleRecipePreference} disabled={saving}>
             {recipeEnabled ? 'On' : 'Off'}
           </button>
+          <button
+            type="button"
+            className="app-btn-secondary w-full px-3 py-1.5 sm:w-auto"
+            onClick={shareDashboard}
+            disabled={!userId}
+          >
+            Share dashboard
+          </button>
+          {publicDashboardPath && (
+            <Link href={publicDashboardPath} className="text-sm text-teal-300 underline hover:text-teal-200">
+              Open public view
+            </Link>
+          )}
         </div>
+        {shareMessage && <p className="app-muted mt-2 text-xs">{shareMessage}</p>}
       </section>
 
       {loading && <p className="app-muted mt-4">Loading dashboard...</p>}
@@ -115,6 +190,32 @@ function DashboardPageContent() {
 
       {data && (
         <>
+          <section className="app-card mt-6">
+            <h2 className="app-section-title">Saved Recipe Links</h2>
+            <ul className="mt-2 space-y-2 text-sm">
+              {data.savedRecipes.length ? (
+                data.savedRecipes.map((recipe) => (
+                  <li key={recipe.id} className="app-list-item text-slate-300">
+                    <p className="font-medium text-slate-100 break-words">{recipe.title}</p>
+                    <p className="app-muted text-xs break-words">
+                      From {recipe.dish.name} @ {recipe.restaurant.name}
+                    </p>
+                    <a
+                      href={recipe.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-block break-all text-teal-300 underline hover:text-teal-200"
+                    >
+                      Open recipe link
+                    </a>
+                  </li>
+                ))
+              ) : (
+                <li className="app-muted">No saved recipe links yet. Submit a high-rated dish review to get matches.</li>
+              )}
+            </ul>
+          </section>
+
           <section className="app-card mt-6">
             <h2 className="app-section-title">Want to Visit</h2>
             <ul className="mt-2 space-y-2 text-sm">

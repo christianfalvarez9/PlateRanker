@@ -40,6 +40,8 @@ PlateRank is a responsive full-stack web application for rating restaurants and 
   - `GET /users/:id/dashboard`
   - `GET /users/:id/reviews`
   - `PATCH /users/:id/preferences/recipe-match`
+- Uploads
+  - `POST /uploads/dish-photo` (authenticated image upload for dish reviews; stores in Google Cloud Storage)
 - Frontend pages
   - `/` search page (query + geolocation shortcut)
   - `/login`, `/register`
@@ -239,10 +241,12 @@ npm run seed
 
 - Google Places integration is implemented with fallback mock results when API key is missing in local development.
 - In production, `GOOGLE_PLACES_API_KEY` is required and backend startup will fail fast if it is missing.
-- Menu population uses Google Places data only and does not synthesize mock menu items.
+- Menu population does **not** use Google reviews/editorial text.
+- Menu sync uses Google Places only for place metadata (e.g., website/place reference), then attempts menu extraction from the restaurant website.
 - If upstream menu-like data is unavailable for a restaurant, the menu remains empty (users can still add dishes manually).
 - Menu sync uses DB-backed sync state cache (`MenuSyncState`) with TTL/cooldown/error tracking plus retry/throttling controls.
-- Recipe provider includes mock/default behavior and can be swapped to live provider calls by setting API keys.
+- Recipe matching uses Google Custom Search + structured recipe metadata parsing to select a highest-rated similar recipe link.
+- Recipe matches are persisted per user and surfaced in the private dashboard as saved recipe links.
 
 ### Menu sync environment variables
 
@@ -253,6 +257,20 @@ MENU_MIN_REQUEST_INTERVAL_MS="250"
 MENU_MAX_CONCURRENCY="2"
 MENU_FAILURE_COOLDOWN_MINUTES="15"
 ```
+
+### Dish photo upload environment variables (Google Cloud)
+
+```text
+DISH_PHOTO_BUCKET_NAME="<your-gcs-bucket-name>"
+DISH_PHOTO_PUBLIC_BASE_URL=""
+DISH_PHOTO_UPLOAD_MAX_BYTES="8388608"
+```
+
+- `DISH_PHOTO_BUCKET_NAME`: required in production; GCS bucket used for review images.
+- `DISH_PHOTO_PUBLIC_BASE_URL`: optional custom CDN/public base URL. Leave empty to use `https://storage.googleapis.com/<bucket>/<object>`.
+- `DISH_PHOTO_UPLOAD_MAX_BYTES`: max accepted upload size in bytes.
+
+For Cloud Run, use a service account with at least `Storage Object Creator` on this bucket, and if you use private uniform buckets with custom delivery, configure your URL strategy accordingly.
 
 ---
 
@@ -274,12 +292,15 @@ This repository now contains a complete MVP implementation for:
 
 Use this checklist when launching PlateRank to production.
 
-### Recommended deployment architecture
+### Recommended deployment architecture (Google Cloud)
 
-- **Frontend (Next.js):** Vercel
-- **Backend (Express API):** Railway / Render / Fly.io / container host
-- **Database (PostgreSQL):** managed service (Neon, Supabase, RDS, etc.)
-- **DNS + TLS:** custom domain with HTTPS enabled
+- **Frontend (Next.js):** Cloud Run service (`platerank-web`)
+- **Backend (Express API):** Cloud Run service (`platerank-api`)
+- **Database (PostgreSQL):** Cloud SQL for PostgreSQL
+- **Object storage:** Google Cloud Storage bucket for dish photos
+- **Build + image registry:** Cloud Build + Artifact Registry
+- **Secrets:** Secret Manager
+- **Optional scheduled work:** Cloud Run Job + Cloud Scheduler
 
 ### Required environment variables
 
@@ -300,6 +321,13 @@ MENU_MIN_REQUEST_INTERVAL_MS="250"
 MENU_MAX_CONCURRENCY="2"
 MENU_FAILURE_COOLDOWN_MINUTES="15"
 RECIPE_API_KEY=""
+RECIPE_SEARCH_CX=""
+BACKGROUND_JOBS_ENABLED="false"
+
+# Dish photos (Google Cloud Storage)
+DISH_PHOTO_BUCKET_NAME="<your-gcs-bucket-name>"
+DISH_PHOTO_PUBLIC_BASE_URL=""
+DISH_PHOTO_UPLOAD_MAX_BYTES="8388608"
 ```
 
 > `CORS_ORIGIN_ALLOWLIST` accepts comma-separated origins, for example:
@@ -335,6 +363,75 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
    - restaurant detail/menu/reviews
    - submit meal review
    - dashboard/profile load
+
+### Google Cloud setup checklist (new)
+
+1. **Enable required APIs**
+   - Cloud Run Admin API
+   - Cloud Build API
+   - Artifact Registry API
+   - Secret Manager API
+   - Cloud SQL Admin API
+
+2. **Create Artifact Registry repository**
+   ```bash
+   gcloud artifacts repositories create platerank \
+     --repository-format=docker \
+     --location=us-central1 \
+     --description="PlateRank container images"
+   ```
+
+3. **Provision Cloud SQL (Postgres)**
+   - Create Cloud SQL instance and database.
+   - Create DB user and generate `DATABASE_URL` using the Cloud SQL Unix socket path used by Cloud Run:
+   ```text
+   postgresql://USER:PASSWORD@localhost:5432/platerank?host=/cloudsql/PROJECT:REGION:INSTANCE
+   ```
+
+4. **Create Secret Manager secrets**
+   - `DATABASE_URL`
+   - `JWT_SECRET`
+   - `GOOGLE_PLACES_API_KEY`
+   - `RECIPE_API_KEY`
+   - `RECIPE_SEARCH_CX`
+
+5. **Create runtime service account** (example: `platerank-runner@PROJECT_ID.iam.gserviceaccount.com`) and grant:
+   - `roles/run.invoker` (as needed for service-to-service calls)
+   - `roles/cloudsql.client`
+   - `roles/secretmanager.secretAccessor`
+   - `roles/storage.objectCreator` on your dish-photo bucket
+
+6. **Deploy backend**
+   - Use `cloudbuild.backend.yaml` and customize substitutions (`_CLOUDSQL_INSTANCE`, `_DISH_PHOTO_BUCKET`, `_CORS_ALLOWLIST`, service account).
+   ```bash
+   gcloud builds submit --config cloudbuild.backend.yaml
+   ```
+
+7. **Deploy frontend**
+   - Set `_NEXT_PUBLIC_API_BASE_URL` to your backend Cloud Run URL in `cloudbuild.frontend.yaml`.
+   ```bash
+   gcloud builds submit --config cloudbuild.frontend.yaml
+   ```
+
+8. **Set up repeat-badge scheduled processing** (recommended over in-process cron on Cloud Run)
+   - Deploy the Cloud Run Job definition:
+   ```bash
+   gcloud builds submit --config cloudbuild.jobs.yaml
+   ```
+   - Create Cloud Scheduler trigger (daily at 3 AM UTC example):
+   ```bash
+   gcloud scheduler jobs create http platerank-repeat-badge-daily \
+     --schedule="0 3 * * *" \
+     --uri="https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/PROJECT_ID/jobs/platerank-repeat-badge:run" \
+     --http-method=POST \
+     --oauth-service-account-email=platerank-runner@PROJECT_ID.iam.gserviceaccount.com
+   ```
+
+### Cloud Run notes
+
+- Cloud Run should run backend with `BACKGROUND_JOBS_ENABLED=false`.
+- Use Cloud Run Jobs + Scheduler for deterministic recurring workloads.
+- App listens on port `8080` in Cloud Run Docker images.
 
 ### Launch day checklist
 

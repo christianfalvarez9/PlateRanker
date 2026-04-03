@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import { asyncHandler } from '../utils/http';
 import {
   addWantToVisitRestaurant,
+  getPublicUserDashboard,
   getUserDashboard,
   getUserReviews,
   listWantToVisitRestaurants,
@@ -16,6 +17,14 @@ import {
 } from './validators';
 
 export const usersRouter = Router();
+
+usersRouter.get(
+  '/:id/dashboard/public',
+  asyncHandler(async (req, res) => {
+    const dashboard = await getPublicUserDashboard(req.params.id);
+    res.json(dashboard);
+  }),
+);
 
 usersRouter.get(
   '/:id/reviews',

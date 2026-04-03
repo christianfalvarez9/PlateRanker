@@ -12,6 +12,7 @@ import { dishesRouter } from './dishes/routes';
 import { reviewsRouter } from './reviews/routes';
 import { visitsRouter } from './visits/routes';
 import { usersRouter } from './users/routes';
+import { uploadsRouter } from './uploads/routes';
 import { startBackgroundJobs } from './jobs/repeatBadgeJob';
 
 const app = express();
@@ -56,12 +57,19 @@ app.use('/dishes', dishesRouter);
 app.use('/', reviewsRouter);
 app.use('/visits', visitsRouter);
 app.use('/users', usersRouter);
+app.use('/uploads', uploadsRouter);
 
 app.use(errorHandler);
 
 const server = app.listen(env.port, () => {
   console.log(`PlateRank API running on port ${env.port} (${env.nodeEnv})`);
-  startBackgroundJobs();
+
+  if (env.backgroundJobsEnabled) {
+    startBackgroundJobs();
+    console.log('Background jobs enabled');
+  } else {
+    console.log('Background jobs disabled');
+  }
 });
 
 const shutdown = async () => {

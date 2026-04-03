@@ -6,6 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate --schema=prisma/schema.prisma && tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "jobs:repeat-badge": "node dist/jobs/runRepeatBadgeRefresh.js",
     "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -16,6 +17,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.17.0",
     "@prisma/client": "^5.20.0",
     "axios": "^1.7.7",
     "bcryptjs": "^2.4.3",
@@ -25,6 +27,7 @@
     "express-rate-limit": "^7.4.1",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
     "morgan": "^1.10.0",
     "node-cron": "^3.0.3",
     "zod": "^3.23.8"
@@ -34,6 +37,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.6",
+    "@types/multer": "^1.4.12",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.16.5",
     "prisma": "^5.20.0",
