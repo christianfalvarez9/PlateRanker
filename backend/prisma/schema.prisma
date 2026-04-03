@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DishCategory {
+  APPETIZER
+  ENTREE
+  SIDE
+  DESSERT
+}
+
+enum DishStatus {
+  ACTIVE
+  SEASONAL
+  HISTORICAL
+}
+
+enum DishSource {
+  API
+  USER
+  ADMIN
+}
+
+enum VisitSource {
+  MANUAL
+  REVIEW_INFERRED
+}
+
+model User {
+  id                 String   @id @default(uuid())
+  name               String
+  email              String   @unique
+  passwordHash       String
+  recipeMatchEnabled Boolean  @default(true)
+  mealReviews        MealReview[]
+  reviews            Review[]
+  visits             Visit[]
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Restaurant {
+  id                         String   @id @default(uuid())
+  name                       String
+  googlePlacesRef            String?  @unique
+  address                    String
+  phone                      String?
+  website                    String?
+  reservationUrl             String?
+  overallRating              Float?
+  foodRating                 Float?
+  serviceRating              Float?
+  atmosphereRating           Float?
+  valueRating                Float?
+  highRepeatCustomersBadge   Boolean  @default(false)
+  dishes                     Dish[]
+  mealReviews                MealReview[]
+  reviews                    Review[]
+  visits                     Visit[]
+  menuSyncState              MenuSyncState?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([name])
+}
+
+model Dish {
+  id                   String       @id @default(uuid())
+  restaurantId         String
+  restaurant           Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name                 String
+  nameNormalized       String
+  category             DishCategory
+  status               DishStatus   @default(ACTIVE)
+  unavailableFlagCount Int          @default(0)
+  isActive             Boolean      @default(true)
+  source               DishSource   @default(API)
+  reviews              Review[]
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@unique([restaurantId, nameNormalized])
+  @@index([restaurantId, category])
+  @@index([restaurantId, status])
+}
+
+model MealReview {
+  id              String     @id @default(uuid())
+  userId          String
+  restaurantId    String
+  serviceScore    Int
+  atmosphereScore Int
+  valueScore      Int
+  reviewText      String?
+  imageUrl        String?
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  dishReviews     Review[]
+  createdAt       DateTime   @default(now())
+
+  @@index([restaurantId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model Review {
+  id                String       @id @default(uuid())
+  mealReviewId      String?
+  userId            String
+  restaurantId      String
+  dishId            String
+  mealReview        MealReview?  @relation(fields: [mealReviewId], references: [id], onDelete: SetNull)
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant        Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  dish              Dish         @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  tasteScore        Int
+  portionScore      Int
+  costScore         Int
+  presentationScore Int
+  dishScore         Float
+  category          DishCategory
+  imageUrl          String?
+  reviewText        String?
+  createdAt         DateTime     @default(now())
+
+  @@index([mealReviewId])
+  @@index([restaurantId, createdAt])
+  @@index([dishId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model Visit {
+  id           String     @id @default(uuid())
+  userId       String
+  restaurantId String
+  visitedAt    DateTime   @default(now())
+  source       VisitSource @default(MANUAL)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId, visitedAt])
+  @@index([userId, visitedAt])
+}
+
+model MenuSyncState {
+  restaurantId    String     @id
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  provider        String
+  lastAttemptAt   DateTime?
+  lastSuccessAt   DateTime?
+  nextAllowedAt   DateTime?
+  lastPayloadHash String?
+  lastError       String?
+  failureCount    Int        @default(0)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([provider])
+  @@index([nextAllowedAt])
+}

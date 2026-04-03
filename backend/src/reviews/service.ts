@@ -1,0 +1,302 @@
+import { VisitSource } from '@prisma/client';
+import { prisma } from '../lib/prisma';
+import { HttpError } from '../utils/http';
+import { calculateDishScore } from '../utils/ratings';
+import { recomputeRestaurantRatings } from '../restaurants/ratings';
+import { findRecipeMatch, RecipeMatch } from '../integrations/recipeProvider';
+
+type CreateReviewInput = {
+  userId: string;
+  restaurantId: string;
+  dishId: string;
+  tasteScore: number;
+  portionScore: number;
+  costScore: number;
+  presentationScore: number;
+  reviewText?: string;
+  imageUrl?: string;
+};
+
+type CreateMealReviewInput = {
+  userId: string;
+  restaurantId: string;
+  serviceScore: number;
+  atmosphereScore: number;
+  valueScore: number;
+  reviewText?: string;
+  imageUrl?: string;
+  dishes: Array<{
+    dishId: string;
+    tasteScore: number;
+    portionScore: number;
+    costScore: number;
+    presentationScore: number;
+    reviewText?: string;
+    imageUrl?: string;
+  }>;
+};
+
+type ReviewWithRelations = Awaited<ReturnType<typeof prisma.review.create>>;
+
+export async function createReview(
+  input: CreateReviewInput,
+): Promise<{ review: ReviewWithRelations; recipeMatch: RecipeMatch | null }> {
+  const dish = await prisma.dish.findUnique({
+    where: { id: input.dishId },
+    include: {
+      restaurant: true,
+    },
+  });
+
+  if (!dish || dish.restaurantId !== input.restaurantId) {
+    throw new HttpError(400, 'Dish does not belong to restaurant');
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: input.userId } });
+  if (!user) {
+    throw new HttpError(404, 'User not found');
+  }
+
+  const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+  const duplicate = await prisma.review.findFirst({
+    where: {
+      userId: input.userId,
+      dishId: input.dishId,
+      createdAt: {
+        gte: fifteenMinutesAgo,
+      },
+    },
+  });
+
+  if (duplicate) {
+    throw new HttpError(429, 'Please wait before submitting another review for the same dish');
+  }
+
+  const dishScore = calculateDishScore({
+    tasteScore: input.tasteScore,
+    portionScore: input.portionScore,
+    costScore: input.costScore,
+    presentationScore: input.presentationScore,
+  });
+
+  const review = await prisma.review.create({
+    data: {
+      userId: input.userId,
+      restaurantId: input.restaurantId,
+      dishId: input.dishId,
+      tasteScore: input.tasteScore,
+      portionScore: input.portionScore,
+      costScore: input.costScore,
+      presentationScore: input.presentationScore,
+      dishScore,
+      category: dish.category,
+      reviewText: input.reviewText,
+      imageUrl: input.imageUrl,
+    },
+    include: {
+      dish: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          recipeMatchEnabled: true,
+        },
+      },
+    },
+  });
+
+  await prisma.visit.create({
+    data: {
+      userId: input.userId,
+      restaurantId: input.restaurantId,
+      source: VisitSource.REVIEW_INFERRED,
+    },
+  });
+
+  await recomputeRestaurantRatings(input.restaurantId);
+
+  let recipeMatch: RecipeMatch | null = null;
+  if (dishScore >= 8 && user.recipeMatchEnabled) {
+    recipeMatch = await findRecipeMatch(dish.name);
+  }
+
+  return {
+    review,
+    recipeMatch,
+  };
+}
+
+export async function createMealReview(input: CreateMealReviewInput): Promise<{
+  mealReview: {
+    id: string;
+    serviceScore: number;
+    atmosphereScore: number;
+    valueScore: number;
+    reviewText: string | null;
+    imageUrl: string | null;
+    createdAt: Date;
+    dishReviews: Array<{
+      id: string;
+      dishId: string;
+      dishScore: number;
+      tasteScore: number;
+      portionScore: number;
+      costScore: number;
+      presentationScore: number;
+      reviewText: string | null;
+      imageUrl: string | null;
+      createdAt: Date;
+      dish: {
+        id: string;
+        name: string;
+        category: string;
+      };
+    }>;
+  };
+  recipeMatches: RecipeMatch[];
+}> {
+  const restaurant = await prisma.restaurant.findUnique({ where: { id: input.restaurantId } });
+  if (!restaurant) {
+    throw new HttpError(404, 'Restaurant not found');
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: input.userId } });
+  if (!user) {
+    throw new HttpError(404, 'User not found');
+  }
+
+  const dishIds = input.dishes.map((dish) => dish.dishId);
+  const dishes = await prisma.dish.findMany({
+    where: {
+      id: { in: dishIds },
+      restaurantId: input.restaurantId,
+    },
+  });
+
+  if (dishes.length !== dishIds.length) {
+    throw new HttpError(400, 'One or more dishes do not belong to this restaurant');
+  }
+
+  const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+  const duplicate = await prisma.mealReview.findFirst({
+    where: {
+      userId: input.userId,
+      restaurantId: input.restaurantId,
+      createdAt: {
+        gte: fifteenMinutesAgo,
+      },
+    },
+  });
+
+  if (duplicate) {
+    throw new HttpError(429, 'Please wait before submitting another meal review for this restaurant');
+  }
+
+  const dishById = new Map(dishes.map((dish) => [dish.id, dish]));
+
+  const created = await prisma.$transaction(async (tx) => {
+    const mealReview = await tx.mealReview.create({
+      data: {
+        userId: input.userId,
+        restaurantId: input.restaurantId,
+        serviceScore: input.serviceScore,
+        atmosphereScore: input.atmosphereScore,
+        valueScore: input.valueScore,
+        reviewText: input.reviewText,
+        imageUrl: input.imageUrl,
+      },
+    });
+
+    const dishReviews = [] as Awaited<ReturnType<typeof tx.review.create>>[];
+    for (const dishInput of input.dishes) {
+      const dish = dishById.get(dishInput.dishId);
+      if (!dish) {
+        throw new HttpError(400, 'Dish does not belong to restaurant');
+      }
+
+      const dishScore = calculateDishScore({
+        tasteScore: dishInput.tasteScore,
+        portionScore: dishInput.portionScore,
+        costScore: dishInput.costScore,
+        presentationScore: dishInput.presentationScore,
+      });
+
+      const review = await tx.review.create({
+        data: {
+          mealReviewId: mealReview.id,
+          userId: input.userId,
+          restaurantId: input.restaurantId,
+          dishId: dishInput.dishId,
+          tasteScore: dishInput.tasteScore,
+          portionScore: dishInput.portionScore,
+          costScore: dishInput.costScore,
+          presentationScore: dishInput.presentationScore,
+          dishScore,
+          category: dish.category,
+          reviewText: dishInput.reviewText,
+          imageUrl: dishInput.imageUrl,
+        },
+      });
+
+      dishReviews.push(review);
+    }
+
+    await tx.visit.create({
+      data: {
+        userId: input.userId,
+        restaurantId: input.restaurantId,
+        source: VisitSource.REVIEW_INFERRED,
+      },
+    });
+
+    return {
+      mealReview,
+      dishReviews,
+    };
+  });
+
+  await recomputeRestaurantRatings(input.restaurantId);
+
+  let recipeMatches: RecipeMatch[] = [];
+  if (user.recipeMatchEnabled) {
+    const matched = await Promise.all(
+      created.dishReviews
+        .filter((review) => review.dishScore >= 8)
+        .map(async (review) => {
+          const dish = dishById.get(review.dishId);
+          if (!dish) {
+            return null;
+          }
+          return findRecipeMatch(dish.name);
+        }),
+    );
+
+    recipeMatches = matched.filter((item): item is RecipeMatch => item !== null);
+  }
+
+  const mealReviewWithDishReviews = await prisma.mealReview.findUniqueOrThrow({
+    where: { id: created.mealReview.id },
+    include: {
+      dishReviews: {
+        include: {
+          dish: {
+            select: {
+              id: true,
+              name: true,
+              category: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      },
+    },
+  });
+
+  return {
+    mealReview: mealReviewWithDishReviews,
+    recipeMatches,
+  };
+}
