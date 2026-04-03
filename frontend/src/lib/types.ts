@@ -23,6 +23,19 @@ export type Restaurant = {
   highRepeatCustomersBadge: boolean;
 };
 
+export type WantToVisitEntry = {
+  id: string;
+  createdAt: string;
+  restaurant: {
+    id: string;
+    name: string;
+    address: string;
+    overallRating?: number | null;
+    foodRating?: number | null;
+    highRepeatCustomersBadge: boolean;
+  };
+};
+
 export type Dish = {
   id: string;
   restaurantId: string;

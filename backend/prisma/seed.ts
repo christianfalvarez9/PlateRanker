@@ -9,6 +9,9 @@ async function main() {
   if ('mealReview' in prisma) {
     await (prisma as unknown as { mealReview: { deleteMany: () => Promise<unknown> } }).mealReview.deleteMany();
   }
+  if ('wantToVisit' in prisma) {
+    await (prisma as unknown as { wantToVisit: { deleteMany: () => Promise<unknown> } }).wantToVisit.deleteMany();
+  }
   await prisma.review.deleteMany();
   await prisma.visit.deleteMany();
   await prisma.dish.deleteMany();
@@ -211,6 +214,25 @@ async function main() {
       { userId: cara.id, restaurantId: restaurant.id, visitedAt: daysAgo(1), source: VisitSource.MANUAL },
     ],
   });
+
+  if ('wantToVisit' in prisma) {
+    await (
+      prisma as unknown as {
+        wantToVisit: {
+          createMany: (args: {
+            data: Array<{ userId: string; restaurantId: string }>;
+            skipDuplicates?: boolean;
+          }) => Promise<unknown>;
+        };
+      }
+    ).wantToVisit.createMany({
+      data: [
+        { userId: alice.id, restaurantId: restaurant.id },
+        { userId: cara.id, restaurantId: restaurant.id },
+      ],
+      skipDuplicates: true,
+    });
+  }
 
   await recomputeRestaurantRatings(restaurant.id);
   await recalculateRepeatBadgeForRestaurant(restaurant.id);

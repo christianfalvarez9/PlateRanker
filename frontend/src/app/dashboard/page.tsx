@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { NavBar } from '@/components/NavBar';
 import { apiRequest } from '@/lib/api';
 import { getToken, getUser, updateStoredUser } from '@/lib/auth';
+import { WantToVisitEntry } from '@/lib/types';
 
 type DashboardResponse = {
   highestRatedDishes: Array<{
@@ -27,6 +28,7 @@ type DashboardResponse = {
     restaurant: { name: string };
     createdAt: string;
   }>;
+  wantToVisit: WantToVisitEntry[];
 };
 
 type UserResponse = {
@@ -112,40 +114,62 @@ function DashboardPageContent() {
       {error && <p className="app-error mt-4">{error}</p>}
 
       {data && (
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <section className="app-card-soft md:col-span-1">
-            <h2 className="app-section-title">Top dishes</h2>
+        <>
+          <section className="app-card mt-6">
+            <h2 className="app-section-title">Want to Visit</h2>
             <ul className="mt-2 space-y-2 text-sm">
-              {data.highestRatedDishes.map((item) => (
-                <li key={item.reviewId} className="text-slate-300">
-                  <span className="break-words">{item.dishName} ({item.restaurantName}) · {item.dishScore}</span>
-                </li>
-              ))}
+              {data.wantToVisit.length ? (
+                data.wantToVisit.map((entry) => (
+                  <li key={entry.id} className="app-list-item text-slate-300">
+                    <p className="font-medium text-slate-100">{entry.restaurant.name}</p>
+                    <p className="app-muted">{entry.restaurant.address}</p>
+                    <p>
+                      Overall: {entry.restaurant.overallRating ?? 'No ratings yet'} · Food:{' '}
+                      {entry.restaurant.foodRating ?? 'No ratings yet'}
+                    </p>
+                  </li>
+                ))
+              ) : (
+                <li className="app-muted">No saved restaurants yet.</li>
+              )}
             </ul>
           </section>
 
-          <section className="app-card-soft md:col-span-1">
-            <h2 className="app-section-title">Top restaurants</h2>
-            <ul className="mt-2 space-y-2 text-sm">
-              {data.highestRatedRestaurants.map((item) => (
-                <li key={item.restaurantId} className="text-slate-300">
-                  <span className="break-words">{item.restaurantName} · {item.averageScore.toFixed(2)} ({item.reviewCount} reviews)</span>
-                </li>
-              ))}
-            </ul>
-          </section>
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <section className="app-card-soft md:col-span-1">
+              <h2 className="app-section-title">Top dishes</h2>
+              <ul className="mt-2 space-y-2 text-sm">
+                {data.highestRatedDishes.map((item) => (
+                  <li key={item.reviewId} className="text-slate-300">
+                    <span className="break-words">{item.dishName} ({item.restaurantName}) · {item.dishScore}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
 
-          <section className="app-card-soft md:col-span-1">
-            <h2 className="app-section-title">Recent reviews</h2>
-            <ul className="mt-2 space-y-2 text-sm">
-              {data.recentReviews.map((review) => (
-                <li key={review.id} className="text-slate-300">
-                  <span className="break-words">{review.dish.name} @ {review.restaurant.name} · {review.dishScore}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
+            <section className="app-card-soft md:col-span-1">
+              <h2 className="app-section-title">Top restaurants</h2>
+              <ul className="mt-2 space-y-2 text-sm">
+                {data.highestRatedRestaurants.map((item) => (
+                  <li key={item.restaurantId} className="text-slate-300">
+                    <span className="break-words">{item.restaurantName} · {item.averageScore.toFixed(2)} ({item.reviewCount} reviews)</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="app-card-soft md:col-span-1">
+              <h2 className="app-section-title">Recent reviews</h2>
+              <ul className="mt-2 space-y-2 text-sm">
+                {data.recentReviews.map((review) => (
+                  <li key={review.id} className="text-slate-300">
+                    <span className="break-words">{review.dish.name} @ {review.restaurant.name} · {review.dishScore}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+        </>
       )}
     </>
   );

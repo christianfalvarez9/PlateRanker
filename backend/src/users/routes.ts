@@ -1,8 +1,19 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { asyncHandler } from '../utils/http';
-import { getUserDashboard, getUserReviews, updateRecipePreference } from './service';
-import { updateRecipePreferenceSchema } from './validators';
+import {
+  addWantToVisitRestaurant,
+  getUserDashboard,
+  getUserReviews,
+  listWantToVisitRestaurants,
+  removeWantToVisitRestaurant,
+  updateRecipePreference,
+} from './service';
+import {
+  addWantToVisitSchema,
+  updateRecipePreferenceSchema,
+  wantToVisitRestaurantParamSchema,
+} from './validators';
 
 export const usersRouter = Router();
 
@@ -31,5 +42,34 @@ usersRouter.patch(
     const input = updateRecipePreferenceSchema.parse(req.body);
     const user = await updateRecipePreference(req.params.id, input.recipeMatchEnabled, req.user!.id);
     res.json(user);
+  }),
+);
+
+usersRouter.get(
+  '/me/want-to-visit',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const entries = await listWantToVisitRestaurants(req.user!.id);
+    res.json(entries);
+  }),
+);
+
+usersRouter.post(
+  '/me/want-to-visit',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = addWantToVisitSchema.parse(req.body);
+    const entry = await addWantToVisitRestaurant(req.user!.id, input.restaurantId);
+    res.status(201).json(entry);
+  }),
+);
+
+usersRouter.delete(
+  '/me/want-to-visit/:restaurantId',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { restaurantId } = wantToVisitRestaurantParamSchema.parse(req.params);
+    const result = await removeWantToVisitRestaurant(req.user!.id, restaurantId);
+    res.json(result);
   }),
 );

@@ -12,6 +12,8 @@ type Dish = {
   category: 'APPETIZER' | 'ENTREE' | 'SIDE' | 'DESSERT';
   status: 'ACTIVE' | 'SEASONAL' | 'HISTORICAL';
   unavailableFlagCount: number;
+  avgDishScore?: number | null;
+  reviewCount?: number;
 };
 
 type DishCategory = Dish['category'];
@@ -112,6 +114,40 @@ type MealReviewResult = {
   recipeMatches: RecipeMatch[];
 };
 
+type DishDetailsResponse = {
+  dish: {
+    id: string;
+    name: string;
+    category: DishCategory;
+    status: DishStatus;
+  };
+  aggregates: {
+    reviewCount: number;
+    avgDishScore: number | null;
+    avgTaste: number | null;
+    avgPortion: number | null;
+    avgCost: number | null;
+    avgPresentation: number | null;
+  };
+  summary: string;
+  photos: string[];
+  recentReviews: Array<{
+    id: string;
+    dishScore: number;
+    tasteScore: number;
+    portionScore: number;
+    costScore: number;
+    presentationScore: number;
+    reviewText?: string | null;
+    imageUrl?: string | null;
+    createdAt: string;
+    user: {
+      id: string;
+      name: string;
+    };
+  }>;
+};
+
 type EmptyResponse = Record<string, never>;
 
 type ActiveTab = 'overview' | 'menu' | 'reviews' | 'historical';
@@ -151,6 +187,9 @@ export default function RestaurantProfilePage() {
   const [newDishStatus, setNewDishStatus] = useState<DishStatus>('ACTIVE');
   const [menuActionLoading, setMenuActionLoading] = useState(false);
   const [menuSyncLoading, setMenuSyncLoading] = useState(false);
+  const [selectedDishDetails, setSelectedDishDetails] = useState<DishDetailsResponse | null>(null);
+  const [dishDetailsLoading, setDishDetailsLoading] = useState(false);
+  const [dishImageUrls, setDishImageUrls] = useState<Record<string, string>>({});
   const menuSyncInFlight = useRef(false);
   const reviewsEmptySyncAttemptedRef = useRef(false);
 
@@ -322,6 +361,20 @@ export default function RestaurantProfilePage() {
     }));
   };
 
+  const openDishDetails = async (dishId: string) => {
+    setDishDetailsLoading(true);
+    setSelectedDishDetails(null);
+
+    try {
+      const details = await apiRequest<DishDetailsResponse>(`/restaurants/${restaurantId}/menu/${dishId}`);
+      setSelectedDishDetails(details);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to load dish details');
+    } finally {
+      setDishDetailsLoading(false);
+    }
+  };
+
   const addDishToMeal = () => {
     if (!selectedDishToAdd) {
       return;
@@ -387,6 +440,7 @@ export default function RestaurantProfilePage() {
               costScore: draft.cost,
               presentationScore: draft.presentation,
               reviewText: draft.reviewText || undefined,
+              imageUrl: dishImageUrls[dishId] || undefined,
             };
           }),
         },
@@ -403,6 +457,13 @@ export default function RestaurantProfilePage() {
             ...current,
             reviewText: '',
           };
+        });
+        return next;
+      });
+      setDishImageUrls((prev) => {
+        const next = { ...prev };
+        selectedDishIds.forEach((dishId) => {
+          delete next[dishId];
         });
         return next;
       });
@@ -602,8 +663,19 @@ export default function RestaurantProfilePage() {
             {data.menu.activeAndSeasonal.length ? (
               data.menu.activeAndSeasonal.map((dish) => (
                 <li key={dish.id} className="app-list-item flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <span className="break-words text-slate-300">
+                  <button
+                    type="button"
+                    className="text-left break-words text-slate-300 hover:text-teal-200"
+                    onClick={() => void openDishDetails(dish.id)}
+                  >
                     {dish.name} · {dish.category} · {dish.status}
+                    <span className="ml-2 text-xs text-slate-400">
+                      Rating: {dish.avgDishScore ? dish.avgDishScore.toFixed(2) : 'N/A'}
+                      {' '}({dish.reviewCount ?? 0})
+                    </span>
+                  </button>
+                  <span className="sr-only">
+                    Open details for {dish.name}
                   </span>
                   <button className="app-btn-secondary w-full px-3 py-1.5 sm:w-auto" onClick={() => flagUnavailable(dish.id)}>
                     Flag unavailable ({dish.unavailableFlagCount})
@@ -825,6 +897,19 @@ export default function RestaurantProfilePage() {
                         value={draft.reviewText}
                         onChange={(e) => updateDishDraft(dish.id, 'reviewText', e.target.value)}
                       />
+
+                      <input
+                        className="app-input mt-2"
+                        type="url"
+                        placeholder="Optional dish photo URL"
+                        value={dishImageUrls[dish.id] ?? ''}
+                        onChange={(e) =>
+                          setDishImageUrls((prev) => ({
+                            ...prev,
+                            [dish.id]: e.target.value,
+                          }))
+                        }
+                      />
                     </div>
                   );
                 })}
@@ -878,6 +963,83 @@ export default function RestaurantProfilePage() {
               )}
             </ul>
           </div>
+        </section>
+      )}
+
+      {(dishDetailsLoading || selectedDishDetails) && (
+        <section className="app-card mt-6">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="app-section-title">Dish Details</h2>
+            {selectedDishDetails && (
+              <button
+                type="button"
+                className="app-btn-secondary px-3 py-1.5"
+                onClick={() => setSelectedDishDetails(null)}
+              >
+                Close
+              </button>
+            )}
+          </div>
+
+          {dishDetailsLoading && <p className="app-muted mt-2">Loading dish details...</p>}
+
+          {selectedDishDetails && (
+            <div className="mt-3 space-y-3 text-sm text-slate-300">
+              <p className="text-slate-100 font-medium">{selectedDishDetails.dish.name}</p>
+              <p>
+                Overall: {selectedDishDetails.aggregates.avgDishScore?.toFixed(2) ?? 'N/A'} · Reviews:{' '}
+                {selectedDishDetails.aggregates.reviewCount}
+              </p>
+              <p>
+                Taste: {selectedDishDetails.aggregates.avgTaste?.toFixed(2) ?? 'N/A'} · Portion:{' '}
+                {selectedDishDetails.aggregates.avgPortion?.toFixed(2) ?? 'N/A'} · Cost:{' '}
+                {selectedDishDetails.aggregates.avgCost?.toFixed(2) ?? 'N/A'} · Presentation:{' '}
+                {selectedDishDetails.aggregates.avgPresentation?.toFixed(2) ?? 'N/A'}
+              </p>
+              <p className="app-muted">{selectedDishDetails.summary}</p>
+
+              {selectedDishDetails.photos.length > 0 && (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {selectedDishDetails.photos.map((photoUrl) => (
+                    <a
+                      key={photoUrl}
+                      href={photoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="app-list-item break-all text-xs text-teal-200 hover:text-teal-100"
+                    >
+                      {photoUrl}
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              <ul className="space-y-2">
+                {selectedDishDetails.recentReviews.map((review) => (
+                  <li key={review.id} className="app-list-item">
+                    <p className="font-medium text-slate-100">
+                      {review.user.name} · {review.dishScore.toFixed(2)}
+                    </p>
+                    <p className="app-muted text-xs">
+                      Taste {review.tasteScore} · Portion {review.portionScore} · Cost {review.costScore} ·
+                      {' '}Presentation {review.presentationScore}
+                    </p>
+                    {review.reviewText && <p className="mt-1">“{review.reviewText}”</p>}
+                    {review.imageUrl && (
+                      <a
+                        href={review.imageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block text-xs text-teal-200 underline"
+                      >
+                        View dish photo
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       )}
     </>

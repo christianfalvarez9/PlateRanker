@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../utils/http';
 import { searchRestaurantsSchema } from './validators';
 import {
+  getDishDetails,
   getRestaurantMenu,
   getRestaurantProfile,
   getRestaurantReviews,
@@ -41,6 +42,14 @@ restaurantsRouter.post(
   asyncHandler(async (req, res) => {
     const result = await syncRestaurantMenuForViewing(req.params.id);
     res.status(200).json(result);
+  }),
+);
+
+restaurantsRouter.get(
+  '/:id/menu/:dishId',
+  asyncHandler(async (req, res) => {
+    const result = await getDishDetails(req.params.id, req.params.dishId);
+    res.json(result);
   }),
 );
 

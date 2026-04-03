@@ -1,17 +1,51 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { NavBar } from '@/components/NavBar';
 import { apiRequest } from '@/lib/api';
 import { Restaurant } from '@/lib/types';
+import { getToken } from '@/lib/auth';
+
+type WantToVisitResponse = {
+  id: string;
+  createdAt: string;
+  restaurant: {
+    id: string;
+    name: string;
+  };
+};
 
 export default function HomePage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Restaurant[]>([]);
+  const [wantToVisitIds, setWantToVisitIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [saveLoadingByRestaurantId, setSaveLoadingByRestaurantId] = useState<Record<string, boolean>>({});
+
+  const token = getToken();
+
+  useEffect(() => {
+    const loadWantToVisit = async () => {
+      if (!token) {
+        return;
+      }
+
+      try {
+        const entries = await apiRequest<Array<{ restaurant: { id: string } }>>('/users/me/want-to-visit', {
+          token,
+        });
+
+        setWantToVisitIds(new Set(entries.map((entry) => entry.restaurant.id)));
+      } catch {
+        // non-blocking for search page
+      }
+    };
+
+    void loadWantToVisit();
+  }, [token]);
 
   const runSearch = async (searchQuery: string, lat?: number, lng?: number) => {
     const params = new URLSearchParams({ query: searchQuery });
@@ -22,6 +56,43 @@ export default function HomePage() {
 
     const data = await apiRequest<Restaurant[]>(`/restaurants/search?${params.toString()}`);
     setResults(data);
+  };
+
+  const toggleWantToVisit = async (restaurantId: string) => {
+    if (!token) {
+      setError('Please login to save restaurants to your Want to Visit list.');
+      return;
+    }
+
+    const isSaved = wantToVisitIds.has(restaurantId);
+
+    setSaveLoadingByRestaurantId((prev) => ({ ...prev, [restaurantId]: true }));
+    setError(null);
+
+    try {
+      if (isSaved) {
+        await apiRequest<{ success: true }>(`/users/me/want-to-visit/${restaurantId}`, {
+          method: 'DELETE',
+          token,
+        });
+        setWantToVisitIds((prev) => {
+          const next = new Set(prev);
+          next.delete(restaurantId);
+          return next;
+        });
+      } else {
+        await apiRequest<WantToVisitResponse>('/users/me/want-to-visit', {
+          method: 'POST',
+          token,
+          body: { restaurantId },
+        });
+        setWantToVisitIds((prev) => new Set(prev).add(restaurantId));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update want to visit list');
+    } finally {
+      setSaveLoadingByRestaurantId((prev) => ({ ...prev, [restaurantId]: false }));
+    }
   };
 
   const onSearch = async (event: FormEvent) => {
@@ -114,12 +185,22 @@ export default function HomePage() {
             <p className="mt-2 text-sm text-slate-300">
               Overall: {restaurant.overallRating ?? 'No ratings yet'} · Food: {restaurant.foodRating ?? 'No ratings yet'}
             </p>
-            <Link
-              className="app-btn-secondary mt-3 w-full sm:w-auto"
-              href={`/restaurants/${restaurant.id}`}
-            >
-              View Restaurant
-            </Link>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Link className="app-btn-secondary w-full sm:w-auto" href={`/restaurants/${restaurant.id}`}>
+                View Restaurant
+              </Link>
+              <button
+                className="app-btn-primary w-full sm:w-auto"
+                onClick={() => void toggleWantToVisit(restaurant.id)}
+                disabled={Boolean(saveLoadingByRestaurantId[restaurant.id])}
+              >
+                {saveLoadingByRestaurantId[restaurant.id]
+                  ? 'Saving...'
+                  : wantToVisitIds.has(restaurant.id)
+                    ? 'Saved to Want to Visit'
+                    : 'Want to Visit'}
+              </button>
+            </div>
           </article>
         ))}
       </section>
