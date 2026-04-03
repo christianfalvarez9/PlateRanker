@@ -24,6 +24,21 @@ type GooglePlaceDetailResponse = {
   };
 };
 
+const DEFAULT_SEARCH_RADIUS_METERS = 20_000;
+
+function buildRestaurantSearchQuery(query: string): string {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return 'restaurants';
+  }
+
+  if (/\brestaurants?\b/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `${trimmed} restaurants`;
+}
+
 function fallbackMockResults(query: string): PlaceResult[] {
   return [
     {
@@ -54,11 +69,19 @@ export async function searchGooglePlaces(args: {
     return fallbackMockResults(query);
   }
 
-  const locationBias = lat !== undefined && lng !== undefined ? `&locationbias=circle:20000@${lat},${lng}` : '';
-  const textSearchUrl =
-    `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(
-      `${query} restaurants`,
-    )}${locationBias}&key=${env.googlePlacesApiKey}`;
+  const searchQuery = buildRestaurantSearchQuery(query);
+  const queryParams = new URLSearchParams({
+    query: searchQuery,
+    type: 'restaurant',
+    key: env.googlePlacesApiKey,
+  });
+
+  if (lat !== undefined && lng !== undefined) {
+    queryParams.set('location', `${lat},${lng}`);
+    queryParams.set('radius', String(DEFAULT_SEARCH_RADIUS_METERS));
+  }
+
+  const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?${queryParams.toString()}`;
 
   const textSearch = await axios.get<{ results?: GooglePlaceTextSearchItem[] }>(textSearchUrl);
   const places = (textSearch.data.results ?? []).slice(0, 10);
