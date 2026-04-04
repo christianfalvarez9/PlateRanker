@@ -1,0 +1,9 @@
+.git
+.idea
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/*.log
+backend/.env
+frontend/.env.local

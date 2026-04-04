@@ -1,0 +1,47 @@
+substitutions:
+  _REGION: us-central1
+  _SERVICE: platerank-web
+  _REPOSITORY: platerank
+  _AR_HOST: us-central1-docker.pkg.dev
+  _RUN_SA: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
+  _NEXT_PUBLIC_API_BASE_URL: https://platerank-api-xxxxx-uc.a.run.app
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: Build frontend image
+    args:
+      - build
+      - -f
+      - frontend/Dockerfile
+      - -t
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - --build-arg
+      - NEXT_PUBLIC_API_BASE_URL=${_NEXT_PUBLIC_API_BASE_URL}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push frontend image
+    args:
+      - push
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy frontend to Cloud Run
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --project=${PROJECT_ID}
+      - --region=${_REGION}
+      - --platform=managed
+      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - --service-account=${_RUN_SA}
+      - --allow-unauthenticated
+      - --port=8080
+      - --max-instances=10
+      - --set-env-vars=NODE_ENV=production
+      - --set-env-vars=PORT=8080
+
+images:
+  - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}

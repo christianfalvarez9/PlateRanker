@@ -1,0 +1,70 @@
+substitutions:
+  _REGION: us-central1
+  _REPOSITORY: platerank
+  _SERVICE: platerank-api
+  _AR_HOST: us-central1-docker.pkg.dev
+  _RUN_SA: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
+  _CLOUDSQL_INSTANCE: "my-project:us-central1:platerank-sql"
+  _CORS_ALLOWLIST: "https://your-frontend-domain.com"
+  _GOOGLE_PLACES_API_KEY_SECRET: GOOGLE_PLACES_API_KEY
+  _JWT_SECRET_NAME: JWT_SECRET
+  _DATABASE_URL_SECRET: DATABASE_URL
+  _DISH_PHOTO_BUCKET: ""
+  _DISH_PHOTO_PUBLIC_BASE_URL: ""
+  _RECIPE_API_KEY_SECRET: RECIPE_API_KEY
+  _RECIPE_SEARCH_CX_SECRET: RECIPE_SEARCH_CX
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: Build backend image
+    args:
+      - build
+      - -f
+      - Dockerfile
+      - -t
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push backend image
+    args:
+      - push
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy backend to Cloud Run
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --project=${PROJECT_ID}
+      - --region=${_REGION}
+      - --platform=managed
+      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - --service-account=${_RUN_SA}
+      - --allow-unauthenticated
+      - --port=8080
+      - --max-instances=10
+      - --set-env-vars=NODE_ENV=production
+      - --set-env-vars=PORT=8080
+      - --set-env-vars=CORS_ORIGIN_ALLOWLIST=${_CORS_ALLOWLIST}
+      - --set-env-vars=MENU_CACHE_TTL_HOURS=24
+      - --set-env-vars=MENU_MAX_RETRIES=3
+      - --set-env-vars=MENU_MIN_REQUEST_INTERVAL_MS=250
+      - --set-env-vars=MENU_MAX_CONCURRENCY=2
+      - --set-env-vars=MENU_FAILURE_COOLDOWN_MINUTES=15
+      - --set-env-vars=DISH_PHOTO_BUCKET_NAME=${_DISH_PHOTO_BUCKET}
+      - --set-env-vars=DISH_PHOTO_PUBLIC_BASE_URL=${_DISH_PHOTO_PUBLIC_BASE_URL}
+      - --set-env-vars=DISH_PHOTO_UPLOAD_MAX_BYTES=8388608
+      - --set-env-vars=JWT_EXPIRES_IN=7d
+      - --set-env-vars=BACKGROUND_JOBS_ENABLED=false
+      - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
+      - --set-secrets=JWT_SECRET=${_JWT_SECRET_NAME}:latest
+      - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest
+      - --set-secrets=GOOGLE_PLACES_API_KEY=${_GOOGLE_PLACES_API_KEY_SECRET}:latest
+      - --set-secrets=RECIPE_API_KEY=${_RECIPE_API_KEY_SECRET}:latest
+      - --set-secrets=RECIPE_SEARCH_CX=${_RECIPE_SEARCH_CX_SECRET}:latest
+
+images:
+  - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
