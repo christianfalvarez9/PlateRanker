@@ -75,6 +75,81 @@ const DRINK_KEYWORDS = [
   'wine',
 ];
 
+const FOOD_SIGNAL_KEYWORDS = [
+  'burger',
+  'chicken',
+  'beef',
+  'steak',
+  'pork',
+  'lamb',
+  'turkey',
+  'fish',
+  'salmon',
+  'tuna',
+  'shrimp',
+  'crab',
+  'lobster',
+  'oyster',
+  'clam',
+  'mussel',
+  'sushi',
+  'sashimi',
+  'ramen',
+  'udon',
+  'pho',
+  'pasta',
+  'spaghetti',
+  'linguine',
+  'fettuccine',
+  'ravioli',
+  'lasagna',
+  'gnocchi',
+  'pizza',
+  'calzone',
+  'taco',
+  'burrito',
+  'quesadilla',
+  'enchilada',
+  'fajita',
+  'nacho',
+  'sandwich',
+  'panini',
+  'wrap',
+  'sub',
+  'fries',
+  'salad',
+  'soup',
+  'rice',
+  'noodle',
+  'dumpling',
+  'bao',
+  'curry',
+  'biryani',
+  'shawarma',
+  'gyro',
+  'falafel',
+  'kebab',
+  'bbq',
+  'ribs',
+  'brisket',
+  'wings',
+  'tenders',
+  'omelet',
+  'pancake',
+  'waffle',
+  'toast',
+  'dessert',
+  'cake',
+  'cookie',
+  'brownie',
+  'cheesecake',
+  'pie',
+  'gelato',
+  'sorbet',
+  'ice cream',
+  'mochi',
+];
+
 const NON_MENU_TERMS = [
   'menu',
   'home',
@@ -95,7 +170,114 @@ const NON_MENU_TERMS = [
   'restaurant',
   'service',
   'staff',
+  'book now',
+  'book a table',
+  'reserve',
+  'reservations',
+  'order now',
+  'delivery',
+  'pickup',
+  'takeout',
+  'catering',
+  'events',
+  'careers',
+  'jobs',
+  'faq',
+  'help',
+  'support',
+  'accessibility',
+  'sitemap',
+  'newsletter',
+  'subscribe',
+  'cookie policy',
+  'all rights reserved',
+  'terms of service',
+  'terms and conditions',
+  'privacy policy',
+  'view all',
+  'see all',
+  'load more',
+  'follow us',
+  'instagram',
+  'facebook',
+  'twitter',
+  'tiktok',
+  'youtube',
+  'open now',
+  'closed now',
+  'directions',
+  'call now',
+  'contact us',
 ];
+
+const MENU_HEADING_TERMS = new Set([
+  'appetizer',
+  'appetizers',
+  'entree',
+  'entrees',
+  'main',
+  'mains',
+  'main course',
+  'side',
+  'sides',
+  'dessert',
+  'desserts',
+  'drinks',
+  'beverages',
+  'cocktails',
+  'beer',
+  'wine',
+  'coffee',
+  'tea',
+  'kids menu',
+  'lunch',
+  'dinner',
+  'brunch',
+  'specials',
+]);
+
+const SINGLE_WORD_DISH_ALLOWLIST = new Set([
+  'ramen',
+  'udon',
+  'pho',
+  'sushi',
+  'sashimi',
+  'tacos',
+  'nachos',
+  'dumplings',
+  'falafel',
+  'shawarma',
+  'gyro',
+  'paella',
+  'risotto',
+  'gnocchi',
+  'lasagna',
+  'ravioli',
+  'bibimbap',
+  'biryani',
+  'teriyaki',
+  'ceviche',
+  'poutine',
+  'tiramisu',
+  'cheesecake',
+  'gelato',
+]);
+
+const GENERIC_MENU_ADJECTIVES = new Set([
+  'house',
+  'signature',
+  'special',
+  'classic',
+  'fresh',
+  'new',
+  'our',
+  'chef',
+]);
+
+const DAY_OR_TIME_REGEX =
+  /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|am|pm|\d{1,2}:\d{2})\b/i;
+const UI_ACTION_REGEX =
+  /^(?:order|book|reserve|get|view|read|learn|follow|call|contact|sign|log|download|share)\b/i;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -176,7 +358,12 @@ async function requestWithRetry<T>(requestFn: () => Promise<T>): Promise<T> {
 }
 
 function cleanItemName(raw: string): string {
-  return raw.replace(/\s+/g, ' ').trim().slice(0, 120);
+  return raw
+    .replace(/\s+/g, ' ')
+    .replace(/^[•·\-–—*\u2022\u25CF\u25AA\u25E6\u2043\u2219\s]+/, '')
+    .replace(/[|•·]+\s*$/, '')
+    .trim()
+    .slice(0, 120);
 }
 
 function decodeHtmlEntities(input: string): string {
@@ -206,10 +393,55 @@ function normalizeDishCandidate(candidate: string): string {
   return cleanItemName(candidate)
     .replace(/\$\s*\d+(?:\.\d{1,2})?/g, ' ')
     .replace(/\b\d+(?:\.\d{1,2})?\s*(?:usd|dollars?)\b/gi, ' ')
+    .replace(/\b(?:cal|kcal|calories?)\b/gi, ' ')
     .replace(/\b(?:add to cart|order now|learn more|read more)\b/gi, ' ')
     .replace(/["'“”]+/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function tokenizeCandidate(candidate: string): string[] {
+  return candidate
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function hasFoodSignal(candidate: string): boolean {
+  const lower = candidate.toLowerCase();
+  return FOOD_SIGNAL_KEYWORDS.some((keyword) => lower.includes(keyword));
+}
+
+function isMenuHeadingCandidate(candidate: string): boolean {
+  const normalized = candidate.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (MENU_HEADING_TERMS.has(normalized)) {
+    return true;
+  }
+
+  if (normalized.endsWith(' menu')) {
+    const withoutMenu = normalized.replace(/\s+menu$/, '').trim();
+    return MENU_HEADING_TERMS.has(withoutMenu);
+  }
+
+  return false;
+}
+
+function hasSuspiciousNoise(candidate: string): boolean {
+  if (DAY_OR_TIME_REGEX.test(candidate)) {
+    return true;
+  }
+
+  if (UI_ACTION_REGEX.test(candidate.toLowerCase())) {
+    return true;
+  }
+
+  if (/[<>{}@[\]#%^*_=`~]+/.test(candidate)) {
+    return true;
+  }
+
+  const symbolCount = (candidate.match(/[!$%^*_=+~`<>|]/g) ?? []).length;
+  return symbolCount > 3;
 }
 
 function looksLikeDrink(name: string): boolean {
@@ -232,8 +464,17 @@ function isLikelyDishCandidate(candidate: string): boolean {
   }
 
   const lower = candidate.toLowerCase();
+  const tokens = tokenizeCandidate(candidate);
+
+  if (!tokens.length) {
+    return false;
+  }
 
   if (NON_MENU_TERMS.some((term) => lower.includes(term))) {
+    return false;
+  }
+
+  if (isMenuHeadingCandidate(candidate)) {
     return false;
   }
 
@@ -241,7 +482,28 @@ function isLikelyDishCandidate(candidate: string): boolean {
     return false;
   }
 
+  if (hasSuspiciousNoise(candidate)) {
+    return false;
+  }
+
   if (/https?:\/\//i.test(candidate) || /@/.test(candidate)) {
+    return false;
+  }
+
+  const hasFoodKeyword = hasFoodSignal(candidate);
+
+  if (words.length === 1) {
+    const token = tokens[0];
+    if (!SINGLE_WORD_DISH_ALLOWLIST.has(token) && !hasFoodKeyword) {
+      return false;
+    }
+  }
+
+  if (
+    !hasFoodKeyword &&
+    tokens.length <= 2 &&
+    tokens.every((token) => GENERIC_MENU_ADJECTIVES.has(token))
+  ) {
     return false;
   }
 
@@ -578,7 +840,7 @@ function extractMenuCandidatesFromJsonLd(html: string): string[] {
     .filter((candidate) => isLikelyDishCandidate(candidate));
 }
 
-function extractTaggedTextCandidates(html: string): string[] {
+function extractTaggedTextCandidates(html: string, sourceUrl: string): string[] {
   const stripped = html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
@@ -588,7 +850,10 @@ function extractTaggedTextCandidates(html: string): string[] {
   const tagRegex = /<(?:li|h2|h3|h4|p|span)[^>]*>([\s\S]*?)<\/(?:li|h2|h3|h4|p|span)>/gi;
 
   const blocks = Array.from(stripped.matchAll(menuBlockRegex)).map((match) => match[1] ?? '');
-  const sources = blocks.length ? blocks : [stripped];
+  const hasMenuPathHint = /\/(?:menu|menus|food-menu|our-menu|dining\/menu|eat\/menu|order)(?:\/|$|\?)/i.test(
+    sourceUrl,
+  );
+  const sources = blocks.length ? blocks : hasMenuPathHint ? [stripped] : [];
 
   const candidates: string[] = [];
 
@@ -619,7 +884,7 @@ async function fetchWebsiteMenuItems(input: FetchMenuInput): Promise<ExternalMen
     }
 
     rawCandidates.push(...extractMenuCandidatesFromJsonLd(html));
-    rawCandidates.push(...extractTaggedTextCandidates(html));
+    rawCandidates.push(...extractTaggedTextCandidates(html, url));
 
     if (rawCandidates.length >= MAX_MENU_ITEMS * 6) {
       break;
