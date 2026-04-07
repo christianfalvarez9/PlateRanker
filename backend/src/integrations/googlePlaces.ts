@@ -13,11 +13,18 @@ type GooglePlaceTextSearchItem = {
   place_id: string;
   name?: string;
   formatted_address?: string;
+  geometry?: {
+    location?: {
+      lat?: number;
+      lng?: number;
+    };
+  };
 };
 
 type GooglePlaceTextSearchResponse = {
   status?: string;
   error_message?: string;
+  next_page_token?: string;
   results?: GooglePlaceTextSearchItem[];
 };
 
@@ -55,6 +62,9 @@ const SUPPORTED_RADIUS_MILES = new Set([5, 10, 20, 50]);
 const MILES_TO_METERS = 1_609.34;
 const MAX_GOOGLE_RADIUS_METERS = 50_000;
 const MAX_SEARCH_RESULTS = 80;
+const NEXT_PAGE_TOKEN_DELAY_MS = 2_000;
+const NEXT_PAGE_TOKEN_RETRY_DELAY_MS = 1_000;
+const NEXT_PAGE_TOKEN_MAX_RETRIES = 3;
 
 function isPostalCodeQuery(query: string): boolean {
   const trimmed = query.trim();
@@ -102,6 +112,57 @@ function normalizeRadiusMiles(radiusMiles?: number): number {
 
 function milesToMeters(miles: number): number {
   return Math.round(miles * MILES_TO_METERS);
+}
+
+function toRadians(value: number): number {
+  return (value * Math.PI) / 180;
+}
+
+function calculateDistanceMeters(from: LatLng, to: LatLng): number {
+  const earthRadiusMeters = 6_371_000;
+  const dLat = toRadians(to.lat - from.lat);
+  const dLng = toRadians(to.lng - from.lng);
+  const fromLat = toRadians(from.lat);
+  const toLat = toRadians(to.lat);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(fromLat) * Math.cos(toLat) * Math.sin(dLng / 2) ** 2;
+
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getPlaceCoordinates(place: GooglePlaceTextSearchItem): LatLng | null {
+  const location = place.geometry?.location;
+  if (typeof location?.lat !== 'number' || typeof location?.lng !== 'number') {
+    return null;
+  }
+
+  return {
+    lat: location.lat,
+    lng: location.lng,
+  };
+}
+
+function filterPlacesWithinRadius(
+  places: GooglePlaceTextSearchItem[],
+  center: LatLng,
+  radiusMeters: number,
+): GooglePlaceTextSearchItem[] {
+  return places.filter((place) => {
+    const coordinates = getPlaceCoordinates(place);
+    if (!coordinates) {
+      return false;
+    }
+
+    return calculateDistanceMeters(center, coordinates) <= radiusMeters;
+  });
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function offsetLatLng(origin: LatLng, northMeters: number, eastMeters: number): LatLng {
@@ -158,6 +219,58 @@ function dedupePlaceItems(items: GooglePlaceTextSearchItem[]): GooglePlaceTextSe
   return Array.from(byPlaceId.values());
 }
 
+async function fetchPaginatedPlaceResults(args: {
+  endpoint: 'textsearch' | 'nearbysearch';
+  operation: 'text search' | 'nearby search';
+  params: URLSearchParams;
+}): Promise<GooglePlaceTextSearchItem[]> {
+  const results: GooglePlaceTextSearchItem[] = [];
+  const seenTokens = new Set<string>();
+  let nextPageToken: string | undefined;
+
+  while (results.length < MAX_SEARCH_RESULTS) {
+    const requestParams = new URLSearchParams(args.params.toString());
+
+    if (nextPageToken) {
+      requestParams.set('pagetoken', nextPageToken);
+      await wait(NEXT_PAGE_TOKEN_DELAY_MS);
+    }
+
+    const url = `https://maps.googleapis.com/maps/api/place/${args.endpoint}/json?${requestParams.toString()}`;
+    let response = await axios.get<GooglePlaceTextSearchResponse>(url);
+
+    if (nextPageToken && response.data.status === 'INVALID_REQUEST') {
+      let retries = 0;
+      while (response.data.status === 'INVALID_REQUEST' && retries < NEXT_PAGE_TOKEN_MAX_RETRIES) {
+        retries += 1;
+        await wait(NEXT_PAGE_TOKEN_RETRY_DELAY_MS);
+        response = await axios.get<GooglePlaceTextSearchResponse>(url);
+      }
+
+      if (response.data.status === 'INVALID_REQUEST') {
+        break;
+      }
+    }
+
+    assertGooglePlacesStatus(args.operation, response.data.status, response.data.error_message);
+    results.push(...(response.data.results ?? []));
+
+    if (results.length >= MAX_SEARCH_RESULTS) {
+      break;
+    }
+
+    const token = response.data.next_page_token;
+    if (!token || seenTokens.has(token)) {
+      break;
+    }
+
+    seenTokens.add(token);
+    nextPageToken = token;
+  }
+
+  return results.slice(0, MAX_SEARCH_RESULTS);
+}
+
 async function textSearchPlaces(args: {
   query: string;
   lat?: number;
@@ -177,11 +290,11 @@ async function textSearchPlaces(args: {
     }
   }
 
-  const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`;
-  const textSearch = await axios.get<GooglePlaceTextSearchResponse>(textSearchUrl);
-
-  assertGooglePlacesStatus('text search', textSearch.data.status, textSearch.data.error_message);
-  return textSearch.data.results ?? [];
+  return fetchPaginatedPlaceResults({
+    endpoint: 'textsearch',
+    operation: 'text search',
+    params,
+  });
 }
 
 async function nearbySearchPlaces(args: {
@@ -196,11 +309,11 @@ async function nearbySearchPlaces(args: {
     key: env.googlePlacesApiKey,
   });
 
-  const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?${nearbyParams.toString()}`;
-  const nearbySearch = await axios.get<GooglePlaceTextSearchResponse>(nearbyUrl);
-
-  assertGooglePlacesStatus('nearby search', nearbySearch.data.status, nearbySearch.data.error_message);
-  return nearbySearch.data.results ?? [];
+  return fetchPaginatedPlaceResults({
+    endpoint: 'nearbysearch',
+    operation: 'nearby search',
+    params: nearbyParams,
+  });
 }
 
 async function geocodeQueryToLatLng(query: string): Promise<LatLng | null> {
@@ -281,6 +394,7 @@ export async function searchGooglePlaces(args: {
     );
 
     places = dedupePlaceItems(nearbyResults.flat());
+    places = filterPlacesWithinRadius(places, resolvedLocation, radiusMeters);
 
     if (!places.length) {
       const fallbackTextResults = await Promise.all(
@@ -295,6 +409,7 @@ export async function searchGooglePlaces(args: {
       );
 
       places = dedupePlaceItems(fallbackTextResults.flat());
+      places = filterPlacesWithinRadius(places, resolvedLocation, radiusMeters);
     }
   } else {
     places = await textSearchPlaces({ query: searchQuery });
