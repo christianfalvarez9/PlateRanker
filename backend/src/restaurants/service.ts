@@ -4,6 +4,129 @@ import { HttpError } from '../utils/http';
 import { searchGooglePlaces } from '../integrations/googlePlaces';
 import { syncRestaurantMenu, type MenuSyncResult } from '../dishes/service';
 
+type SearchMatchReason = 'name' | 'cuisine' | 'dishType';
+
+export type SearchRestaurantResult = Awaited<ReturnType<typeof prisma.restaurant.upsert>> & {
+  cuisines: string[];
+  dishTypes: string[];
+  matchReasons: SearchMatchReason[];
+};
+
+const CUISINE_BY_GOOGLE_TYPE: Record<string, string> = {
+  italian_restaurant: 'Italian',
+  mexican_restaurant: 'Mexican',
+  thai_restaurant: 'Thai',
+  chinese_restaurant: 'Chinese',
+  japanese_restaurant: 'Japanese',
+  korean_restaurant: 'Korean',
+  vietnamese_restaurant: 'Vietnamese',
+  indian_restaurant: 'Indian',
+  spanish_restaurant: 'Spanish',
+  french_restaurant: 'French',
+  greek_restaurant: 'Greek',
+  mediterranean_restaurant: 'Mediterranean',
+  turkish_restaurant: 'Turkish',
+  lebanese_restaurant: 'Lebanese',
+  american_restaurant: 'American',
+  barbecue_restaurant: 'Barbecue',
+  seafood_restaurant: 'Seafood',
+  sushi_restaurant: 'Sushi',
+  ramen_restaurant: 'Ramen',
+  steak_house: 'Steakhouse',
+  pizza_restaurant: 'Pizza',
+  hamburger_restaurant: 'Burgers',
+};
+
+const DISH_TYPE_RULES: Array<{ label: string; matchers: RegExp[] }> = [
+  { label: 'Burgers', matchers: [/\bburger\b/i, /\bburgers\b/i, /\bpatty melt\b/i] },
+  { label: 'Chicken', matchers: [/\bchicken\b/i, /\bwings?\b/i, /\btenders?\b/i] },
+  {
+    label: 'Pasta',
+    matchers: [/\bpasta\b/i, /\bspaghetti\b/i, /\bfettuccine\b/i, /\blinguine\b/i, /\bnoodles?\b/i],
+  },
+  { label: 'Pizza', matchers: [/\bpizza\b/i, /\bmargherita\b/i, /\bpepperoni\b/i] },
+  { label: 'Seafood', matchers: [/\bseafood\b/i, /\bshrimp\b/i, /\bsalmon\b/i, /\bcrab\b/i, /\blobster\b/i] },
+  { label: 'Tacos', matchers: [/\btacos?\b/i, /\bburritos?\b/i, /\bquesadilla\b/i] },
+  { label: 'Sushi', matchers: [/\bsushi\b/i, /\bsashimi\b/i, /\brolls?\b/i] },
+  { label: 'BBQ', matchers: [/\bbbq\b/i, /\bbarbecue\b/i, /\bribs?\b/i, /\bbrisket\b/i] },
+  { label: 'Salads', matchers: [/\bsalads?\b/i, /\bcaesar\b/i, /\bgreens\b/i] },
+  { label: 'Desserts', matchers: [/\bdesserts?\b/i, /\bcake\b/i, /\bice cream\b/i, /\bcookies?\b/i] },
+];
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function mapCuisinesFromGoogleTypes(types: string[]): string[] {
+  const cuisines = types
+    .map((type) => CUISINE_BY_GOOGLE_TYPE[type])
+    .filter((value): value is string => Boolean(value));
+
+  return uniqueStrings(cuisines);
+}
+
+function inferDishTypesFromDishNames(dishNames: string[]): string[] {
+  const detected: string[] = [];
+
+  for (const dishName of dishNames) {
+    for (const rule of DISH_TYPE_RULES) {
+      if (rule.matchers.some((matcher) => matcher.test(dishName))) {
+        detected.push(rule.label);
+      }
+    }
+  }
+
+  return uniqueStrings(detected);
+}
+
+function textIncludes(haystack: string, needle: string): boolean {
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}
+
+function matchesAnyKeyword(values: string[], keyword: string): boolean {
+  return values.some((value) => textIncludes(value, keyword) || textIncludes(keyword, value));
+}
+
+function buildSearchKeywords(query: string): string[] {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) {
+    return [];
+  }
+
+  const parts = trimmed
+    .split(/[^a-z0-9]+/i)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 2);
+
+  return uniqueStrings([trimmed, ...parts]);
+}
+
+function matchesAnyKeywordSet(values: string[], keywords: string[]): boolean {
+  return keywords.some((keyword) => matchesAnyKeyword(values, keyword));
+}
+
+function matchesTextKeywords(value: string, keywords: string[]): boolean {
+  return keywords.some((keyword) => textIncludes(value, keyword));
+}
+
+function toStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => (typeof item === 'string' ? item.split(',') : []))
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
 function roundToTwo(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -129,7 +252,16 @@ export async function searchRestaurants(args: {
   lat?: number;
   lng?: number;
   radiusMiles?: number;
+  cuisineFilters?: string[];
+  dishTypeFilters?: string[];
 }) {
+  const normalizedQuery = args.query.trim().toLowerCase();
+  const searchKeywords = buildSearchKeywords(args.query);
+  const cuisineFilters = uniqueStrings((args.cuisineFilters ?? []).map((value) => value.trim()).filter(Boolean));
+  const dishTypeFilters = uniqueStrings((args.dishTypeFilters ?? []).map((value) => value.trim()).filter(Boolean));
+  const hasResolvedGeoInput = typeof args.lat === 'number' && typeof args.lng === 'number';
+  const looksLikePostalCode = /^\d{5}(?:-\d{4})?$/.test(normalizedQuery);
+
   const places = await searchGooglePlaces(args);
 
   const records = await Promise.all(
@@ -153,11 +285,86 @@ export async function searchRestaurants(args: {
         },
       });
 
-      return restaurant;
+      return {
+        restaurant,
+        place,
+      };
     }),
   );
 
-  return [...records].sort((a, b) => {
+  const restaurantIds = records.map((entry) => entry.restaurant.id);
+  const dishesByRestaurant = await prisma.dish.findMany({
+    where: {
+      restaurantId: {
+        in: restaurantIds,
+      },
+    },
+    select: {
+      restaurantId: true,
+      name: true,
+      category: true,
+    },
+  });
+
+  const dishNamesByRestaurantId = new Map<string, string[]>();
+  for (const dish of dishesByRestaurant) {
+    const existing = dishNamesByRestaurantId.get(dish.restaurantId) ?? [];
+    existing.push(dish.name);
+    dishNamesByRestaurantId.set(dish.restaurantId, existing);
+  }
+
+  const enriched: SearchRestaurantResult[] = records
+    .map(({ restaurant, place }) => {
+      const cuisines = mapCuisinesFromGoogleTypes(place.types ?? []);
+      const dishTypes = inferDishTypesFromDishNames(dishNamesByRestaurantId.get(restaurant.id) ?? []);
+      const matchReasons: SearchMatchReason[] = [];
+
+      if (matchesTextKeywords(restaurant.name, searchKeywords)) {
+        matchReasons.push('name');
+      }
+
+      if (matchesAnyKeywordSet(cuisines, searchKeywords)) {
+        matchReasons.push('cuisine');
+      }
+
+      if (matchesAnyKeywordSet(dishTypes, searchKeywords)) {
+        matchReasons.push('dishType');
+      }
+
+      return {
+        ...restaurant,
+        cuisines,
+        dishTypes,
+        matchReasons: uniqueStrings(matchReasons) as SearchMatchReason[],
+      };
+    })
+    .filter((record) => {
+      if (!searchKeywords.length) {
+        return true;
+      }
+
+      const addressMatchesQuery = matchesTextKeywords(record.address, searchKeywords);
+      if (hasResolvedGeoInput || looksLikePostalCode || addressMatchesQuery) {
+        return true;
+      }
+
+      return record.matchReasons.length > 0;
+    });
+
+  const cuisineFiltered = cuisineFilters.length
+    ? enriched.filter((record) => cuisineFilters.some((filterValue) => matchesAnyKeyword(record.cuisines, filterValue)))
+    : enriched;
+
+  const fullyFiltered = dishTypeFilters.length
+    ? cuisineFiltered.filter((record) => dishTypeFilters.some((filterValue) => matchesAnyKeyword(record.dishTypes, filterValue)))
+    : cuisineFiltered;
+
+  return [...fullyFiltered].sort((a, b) => {
+    const reasonDiff = b.matchReasons.length - a.matchReasons.length;
+    if (reasonDiff !== 0) {
+      return reasonDiff;
+    }
+
     const overallDiff = ratingSortValue(b.overallRating) - ratingSortValue(a.overallRating);
     if (overallDiff !== 0) {
       return overallDiff;
@@ -170,6 +377,16 @@ export async function searchRestaurants(args: {
 
     return a.name.localeCompare(b.name);
   });
+}
+
+export function parseSearchFilters(input: {
+  cuisineFilters?: unknown;
+  dishTypeFilters?: unknown;
+}) {
+  return {
+    cuisineFilters: toStringArray(input.cuisineFilters),
+    dishTypeFilters: toStringArray(input.dishTypeFilters),
+  };
 }
 
 export async function getRestaurantProfile(restaurantId: string) {

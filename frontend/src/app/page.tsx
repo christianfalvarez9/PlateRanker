@@ -28,6 +28,24 @@ type SearchContext = {
   mode: 'typed' | 'location';
 };
 
+type FilterState = {
+  cuisineFilters: string[];
+  dishTypeFilters: string[];
+};
+
+type ActiveFilterChip = {
+  kind: 'cuisine' | 'dishType';
+  value: string;
+};
+
+function toggleValue(values: string[], value: string): string[] {
+  if (values.includes(value)) {
+    return values.filter((item) => item !== value);
+  }
+
+  return [...values, value];
+}
+
 export default function HomePage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Restaurant[]>([]);
@@ -39,6 +57,11 @@ export default function HomePage() {
   const [wantToVisitSyncWarning, setWantToVisitSyncWarning] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [saveLoadingByRestaurantId, setSaveLoadingByRestaurantId] = useState<Record<string, boolean>>({});
+  const [hasSearched, setHasSearched] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    cuisineFilters: [],
+    dishTypeFilters: [],
+  });
   const lastSearchContextRef = useRef<SearchContext | null>(null);
 
   const token = getToken();
@@ -80,6 +103,7 @@ export default function HomePage() {
     const data = await apiRequest<Restaurant[]>(`/restaurants/search?${params.toString()}`);
     setResults(data);
     setVisibleCount(RESULTS_PAGE_SIZE);
+    setHasSearched(true);
     lastSearchContextRef.current = context;
   };
 
@@ -168,6 +192,10 @@ export default function HomePage() {
     setError(null);
 
     try {
+      setFilters({
+        cuisineFilters: [],
+        dishTypeFilters: [],
+      });
       await runSearch({
         query,
         mode: 'typed',
@@ -191,6 +219,10 @@ export default function HomePage() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
+          setFilters({
+            cuisineFilters: [],
+            dishTypeFilters: [],
+          });
           await runSearch({
             query: query.trim() || 'nearby restaurants',
             lat: position.coords.latitude,
@@ -211,8 +243,31 @@ export default function HomePage() {
     );
   };
 
-  const visibleResults = results.slice(0, visibleCount);
-  const canLoadMore = visibleCount < results.length;
+  const allCuisineFilters = Array.from(new Set(results.flatMap((restaurant) => restaurant.cuisines ?? []))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  const allDishTypeFilters = Array.from(new Set(results.flatMap((restaurant) => restaurant.dishTypes ?? []))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  const hasActiveFilters = filters.cuisineFilters.length > 0 || filters.dishTypeFilters.length > 0;
+  const activeFilterChips: ActiveFilterChip[] = [
+    ...filters.cuisineFilters.map((value) => ({ kind: 'cuisine' as const, value })),
+    ...filters.dishTypeFilters.map((value) => ({ kind: 'dishType' as const, value })),
+  ];
+
+  const filteredResults = results.filter((restaurant) => {
+    const cuisinePass =
+      filters.cuisineFilters.length === 0 ||
+      filters.cuisineFilters.some((filterValue) => (restaurant.cuisines ?? []).includes(filterValue));
+    const dishTypePass =
+      filters.dishTypeFilters.length === 0 ||
+      filters.dishTypeFilters.some((filterValue) => (restaurant.dishTypes ?? []).includes(filterValue));
+
+    return cuisinePass && dishTypePass;
+  });
+
+  const filteredVisibleResults = filteredResults.slice(0, visibleCount);
+  const canLoadMoreFiltered = visibleCount < filteredResults.length;
 
   return (
     <>
@@ -221,7 +276,7 @@ export default function HomePage() {
       <section className="app-card">
         <h1 className="app-title">Find restaurants and rate dishes</h1>
         <p className="app-muted mt-2">
-          Search by ZIP code, city, or address to discover restaurants and view weighted food ratings.
+          Search by restaurant name, cuisine, dish type, ZIP code, city, or address.
         </p>
 
         <form className="mt-4 grid gap-3 sm:flex sm:items-center" onSubmit={onSearch}>
@@ -229,7 +284,7 @@ export default function HomePage() {
             className="app-input sm:flex-1"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Try: 10001, New York, or a neighborhood"
+            placeholder="Try: Joe's Pizza, Italian, burgers, 10001, or New York"
             required
           />
           <div className="flex items-center gap-2">
@@ -271,8 +326,119 @@ export default function HomePage() {
         {wantToVisitSyncWarning && <p className="app-error mt-3">{wantToVisitSyncWarning}</p>}
       </section>
 
+      {(allCuisineFilters.length > 0 || allDishTypeFilters.length > 0) && (
+        <section className="app-card mt-6">
+          <div className="flex flex-col gap-3">
+            {allCuisineFilters.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-slate-200">Filter by cuisine</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {allCuisineFilters.map((cuisine) => {
+                    const isActive = filters.cuisineFilters.includes(cuisine);
+                    return (
+                      <button
+                        key={cuisine}
+                        type="button"
+                        className={`rounded-full px-3 py-1 text-xs border ${
+                          isActive
+                            ? 'border-cyan-300/60 bg-cyan-400/20 text-cyan-100'
+                            : 'border-slate-600 bg-slate-800 text-slate-200'
+                        }`}
+                        onClick={() => {
+                          setVisibleCount(RESULTS_PAGE_SIZE);
+                          setFilters((prev) => ({
+                            ...prev,
+                            cuisineFilters: toggleValue(prev.cuisineFilters, cuisine),
+                          }));
+                        }}
+                      >
+                        {cuisine}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {allDishTypeFilters.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-slate-200">Filter by dish type</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {allDishTypeFilters.map((dishType) => {
+                    const isActive = filters.dishTypeFilters.includes(dishType);
+                    return (
+                      <button
+                        key={dishType}
+                        type="button"
+                        className={`rounded-full px-3 py-1 text-xs border ${
+                          isActive
+                            ? 'border-indigo-300/60 bg-indigo-400/20 text-indigo-100'
+                            : 'border-slate-600 bg-slate-800 text-slate-200'
+                        }`}
+                        onClick={() => {
+                          setVisibleCount(RESULTS_PAGE_SIZE);
+                          setFilters((prev) => ({
+                            ...prev,
+                            dishTypeFilters: toggleValue(prev.dishTypeFilters, dishType),
+                          }));
+                        }}
+                      >
+                        {dishType}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {hasActiveFilters && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-400">Active filters:</span>
+                {activeFilterChips.map((chip, index) => (
+                  <button
+                    key={`${chip.kind}-${chip.value}-${index}`}
+                    type="button"
+                    className="rounded-full border border-slate-500 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                    onClick={() => {
+                      setVisibleCount(RESULTS_PAGE_SIZE);
+                      if (chip.kind === 'cuisine') {
+                        setFilters((prev) => ({
+                          ...prev,
+                          cuisineFilters: prev.cuisineFilters.filter((item) => item !== chip.value),
+                        }));
+                        return;
+                      }
+
+                      setFilters((prev) => ({
+                        ...prev,
+                        dishTypeFilters: prev.dishTypeFilters.filter((item) => item !== chip.value),
+                      }));
+                    }}
+                  >
+                    {chip.kind === 'cuisine' ? `Cuisine: ${chip.value}` : `Dish: ${chip.value}`} ✕
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="app-btn-secondary"
+                  onClick={() => {
+                    setVisibleCount(RESULTS_PAGE_SIZE);
+                    setFilters({
+                      cuisineFilters: [],
+                      dishTypeFilters: [],
+                    });
+                  }}
+                >
+                  Clear all filters
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       <section className="mt-6 grid gap-4 md:grid-cols-2">
-        {visibleResults.map((restaurant) => (
+        {filteredVisibleResults.map((restaurant) => (
           <article key={restaurant.id} className="app-card-soft">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <h2 className="text-lg font-semibold break-words">{restaurant.name}</h2>
@@ -283,6 +449,12 @@ export default function HomePage() {
               )}
             </div>
             <p className="app-muted mt-1 break-words text-sm">{restaurant.address}</p>
+            <p className="mt-1 text-xs text-slate-300">
+              Cuisine: {restaurant.cuisines?.length ? restaurant.cuisines.join(', ') : 'Not available'}
+            </p>
+            <p className="mt-1 text-xs text-slate-300">
+              Dish types: {restaurant.dishTypes?.length ? restaurant.dishTypes.join(', ') : 'Not available'}
+            </p>
             <p className="mt-2 text-sm text-slate-300">
               Overall: {restaurant.overallRating ?? 'No ratings yet'} · Food: {restaurant.foodRating ?? 'No ratings yet'}
             </p>
@@ -313,12 +485,34 @@ export default function HomePage() {
         ))}
       </section>
 
-      {canLoadMore && (
+      {hasSearched && results.length === 0 && !loading && !locationLoading && !error && (
+        <section className="app-card mt-6">
+          <p className="app-muted">No results found. Try another restaurant name, cuisine, or dish type.</p>
+        </section>
+      )}
+
+      {results.length > 0 && filteredResults.length === 0 && (
+        <section className="app-card mt-6">
+          <p className="app-muted">No matching restaurants for the selected filters.</p>
+          <button
+            type="button"
+            className="app-btn-secondary mt-3"
+            onClick={() => {
+              setVisibleCount(RESULTS_PAGE_SIZE);
+              setFilters({ cuisineFilters: [], dishTypeFilters: [] });
+            }}
+          >
+            Clear filters
+          </button>
+        </section>
+      )}
+
+      {canLoadMoreFiltered && (
         <div className="mt-4 flex justify-center">
           <button
             type="button"
             className="app-btn-secondary w-full sm:w-auto"
-            onClick={() => setVisibleCount((prev) => Math.min(prev + RESULTS_PAGE_SIZE, results.length))}
+            onClick={() => setVisibleCount((prev) => Math.min(prev + RESULTS_PAGE_SIZE, filteredResults.length))}
           >
             Load more restaurants
           </button>

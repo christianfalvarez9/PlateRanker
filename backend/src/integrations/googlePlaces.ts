@@ -7,12 +7,14 @@ type PlaceResult = {
   address: string;
   phone?: string;
   website?: string;
+  types: string[];
 };
 
 type GooglePlaceTextSearchItem = {
   place_id: string;
   name?: string;
   formatted_address?: string;
+  types?: string[];
   geometry?: {
     location?: {
       lat?: number;
@@ -36,6 +38,7 @@ type GooglePlaceDetailResponse = {
     formatted_address?: string;
     formatted_phone_number?: string;
     website?: string;
+    types?: string[];
   };
 };
 
@@ -350,6 +353,7 @@ function fallbackMockResults(query: string): PlaceResult[] {
       address: '123 Main St',
       phone: '(555) 000-1111',
       website: 'https://example.com',
+      types: ['restaurant'],
     },
     {
       placeId: `mock-${query.toLowerCase().replace(/\s+/g, '-')}-2`,
@@ -357,6 +361,7 @@ function fallbackMockResults(query: string): PlaceResult[] {
       address: '456 Oak Ave',
       phone: '(555) 000-2222',
       website: 'https://example.com',
+      types: ['restaurant'],
     },
   ];
 }
@@ -429,7 +434,7 @@ export async function searchGooglePlaces(args: {
       }
 
       try {
-        const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,formatted_phone_number,website&key=${env.googlePlacesApiKey}`;
+        const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,formatted_phone_number,website,types&key=${env.googlePlacesApiKey}`;
         const detail = await axios.get<GooglePlaceDetailResponse>(detailUrl);
         assertGooglePlacesStatus('details', detail.data.status, detail.data.error_message);
         const result = detail.data.result ?? {};
@@ -442,12 +447,14 @@ export async function searchGooglePlaces(args: {
           address: result.formatted_address ?? place.formatted_address ?? '',
           phone: result.formatted_phone_number,
           website: result.website,
+          types: result.types ?? place.types ?? [],
         } as PlaceResult;
       } catch {
         return {
           placeId,
           name: place.name ?? 'Unknown Restaurant',
           address: place.formatted_address ?? '',
+          types: place.types ?? [],
         } as PlaceResult;
       }
     }),
