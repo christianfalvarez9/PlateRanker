@@ -837,7 +837,7 @@ export default function RestaurantProfilePage() {
 
       {tab === 'reviews' && (
         <section className="app-card mt-6">
-          <h2 className="app-section-title">Submit one meal review (restaurant + each plate)</h2>
+          <h2 className="app-section-title">Submit your PlateRank</h2>
 
           <form className="mt-3 space-y-4" onSubmit={submitMealReview}>
             <div className="grid gap-3 md:grid-cols-3">
