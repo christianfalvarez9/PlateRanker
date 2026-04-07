@@ -298,7 +298,7 @@ export default function RestaurantProfilePage() {
               `${sync.createdCount} menu item${sync.createdCount === 1 ? '' : 's'} added automatically from ${sync.provider}.`,
             );
           } else if (origin === 'reviews-tab-empty') {
-            setMessage('Menu was checked automatically. Add a dish from the Menu tab if needed.');
+            setMessage('Menu was checked automatically. Add a plate from the Menu tab if needed.');
           }
         }
 
@@ -413,7 +413,7 @@ export default function RestaurantProfilePage() {
       const details = await apiRequest<DishDetailsResponse>(`/restaurants/${restaurantId}/menu/${dishId}`);
       setSelectedDishDetails(details);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to load dish details');
+      setMessage(err instanceof Error ? err.message : 'Failed to load plate details');
     } finally {
       setDishDetailsLoading(false);
     }
@@ -462,7 +462,7 @@ export default function RestaurantProfilePage() {
 
   const uploadDishPhotoFile = async (dishId: string, file: File) => {
     if (!token) {
-      setMessage('Please login first to upload dish photos.');
+      setMessage('Please login first to upload plate photos.');
       return;
     }
 
@@ -507,7 +507,7 @@ export default function RestaurantProfilePage() {
     }
 
     if (!selectedDishIds.length) {
-      setMessage('Select at least one dish for this meal review.');
+      setMessage('Select at least one plate for this meal review.');
       return;
     }
 
@@ -542,7 +542,7 @@ export default function RestaurantProfilePage() {
         },
       });
 
-      setMessage(`Meal review submitted! ${result.mealReview.dishReviews.length} dish reviews saved.`);
+      setMessage(`Meal review submitted! ${result.mealReview.dishReviews.length} plate reviews saved.`);
       setRecipeMatches(result.recipeMatches);
       setMealReviewText('');
       setDishDrafts((previous) => {
@@ -600,10 +600,10 @@ export default function RestaurantProfilePage() {
         },
       });
       setNewDishName('');
-      setMessage('Dish added.');
+      setMessage('Plate added.');
       await fetchProfile();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to add dish');
+      setMessage(err instanceof Error ? err.message : 'Failed to add plate');
     } finally {
       setMenuActionLoading(false);
     }
@@ -716,7 +716,7 @@ export default function RestaurantProfilePage() {
       {tab === 'overview' && (
         <section className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="app-card-soft">
-            <h2 className="app-section-title">Top 3 Rated Dishes</h2>
+            <h2 className="app-section-title">Top 3 Rated Plates</h2>
             <ul className="mt-2 space-y-2 text-sm text-slate-300">
               {data.topDishes.length ? (
                 data.topDishes.map((dish) => (
@@ -725,13 +725,13 @@ export default function RestaurantProfilePage() {
                   </li>
                 ))
               ) : (
-                <li className="app-muted">No dish ratings yet.</li>
+                <li className="app-muted">No plate ratings yet.</li>
               )}
             </ul>
           </div>
 
           <div className="app-card-soft">
-            <h2 className="app-section-title">Bottom 3 Rated Dishes</h2>
+            <h2 className="app-section-title">Bottom 3 Rated Plates</h2>
             <ul className="mt-2 space-y-2 text-sm text-slate-300">
               {data.bottomDishes.length ? (
                 data.bottomDishes.map((dish) => (
@@ -740,7 +740,7 @@ export default function RestaurantProfilePage() {
                   </li>
                 ))
               ) : (
-                <li className="app-muted">No dish ratings yet.</li>
+                <li className="app-muted">No plate ratings yet.</li>
               )}
             </ul>
           </div>
@@ -811,7 +811,7 @@ export default function RestaurantProfilePage() {
               ))
             ) : (
               <li className="app-muted">
-                {menuSyncLoading ? 'Loading menu items…' : 'No active dishes yet. Add one from the form above.'}
+                {menuSyncLoading ? 'Loading menu items…' : 'No active plates yet. Add one from the form above.'}
               </li>
             )}
           </ul>
@@ -829,7 +829,7 @@ export default function RestaurantProfilePage() {
                 </li>
               ))
             ) : (
-              <li className="app-muted">No historical dishes yet.</li>
+              <li className="app-muted">No historical plates yet.</li>
             )}
           </ul>
         </section>
@@ -837,7 +837,7 @@ export default function RestaurantProfilePage() {
 
       {tab === 'reviews' && (
         <section className="app-card mt-6">
-          <h2 className="app-section-title">Submit one meal review (restaurant + each dish)</h2>
+          <h2 className="app-section-title">Submit one meal review (restaurant + each plate)</h2>
 
           <form className="mt-3 space-y-4" onSubmit={submitMealReview}>
             <div className="grid gap-3 md:grid-cols-3">
@@ -885,7 +885,7 @@ export default function RestaurantProfilePage() {
             />
 
             <div>
-              <p className="text-sm font-medium text-slate-200">Select dishes you ate in this meal</p>
+              <p className="text-sm font-medium text-slate-200">Select plates you ate in this meal</p>
               <div className="mt-2 rounded-xl border border-slate-800/80 bg-slate-950/40 p-3">
                 <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
                   <label className="text-sm text-slate-300">
@@ -904,7 +904,7 @@ export default function RestaurantProfilePage() {
                   </label>
 
                   <label className="text-sm text-slate-300">
-                    Dish
+                    Plate
                     <select
                       className="app-select mt-1"
                       value={selectedDishToAdd}
@@ -918,7 +918,7 @@ export default function RestaurantProfilePage() {
                           </option>
                         ))
                       ) : (
-                        <option value="">No available dishes for this course</option>
+                        <option value="">No available plates for this course</option>
                       )}
                     </select>
                   </label>
@@ -929,12 +929,12 @@ export default function RestaurantProfilePage() {
                     onClick={addDishToMeal}
                     disabled={!selectedDishToAdd}
                   >
-                    Add dish
+                    Add plate
                   </button>
                 </div>
 
                 <p className="app-muted mt-2 text-xs">
-                  Change course, add a dish, then switch course again until all items you ate are selected.
+                  Change course, add a plate, then switch course again until all items you ate are selected.
                 </p>
 
                 {selectedDishes.length > 0 && (
@@ -1030,18 +1030,18 @@ export default function RestaurantProfilePage() {
                       </div>
 
                       <label className="mt-2 block text-sm text-slate-300">
-                        Optional dish review
+                        Optional plate review
                         <textarea
                           className="app-textarea mt-1 text-sm"
                           rows={2}
-                          placeholder="Optional: share what stood out about this dish"
+                          placeholder="Optional: share what stood out about this plate"
                           value={draft.reviewText}
                           onChange={(e) => updateDishDraft(dish.id, 'reviewText', e.target.value)}
                         />
                       </label>
 
                       <label className="mt-2 block text-sm text-slate-300">
-                        Optional dish photo (camera or camera roll)
+                        Optional plate photo (camera or camera roll)
                         <input
                           className="app-input mt-1"
                           type="file"
@@ -1137,7 +1137,7 @@ export default function RestaurantProfilePage() {
       {(dishDetailsLoading || selectedDishDetails) && (
         <section className="app-card mt-6">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="app-section-title">Dish Details</h2>
+            <h2 className="app-section-title">Plate Details</h2>
             {selectedDishDetails && (
               <button
                 type="button"
@@ -1149,7 +1149,7 @@ export default function RestaurantProfilePage() {
             )}
           </div>
 
-          {dishDetailsLoading && <p className="app-muted mt-2">Loading dish details...</p>}
+          {dishDetailsLoading && <p className="app-muted mt-2">Loading plate details...</p>}
 
           {selectedDishDetails && (
             <div className="mt-3 space-y-3 text-sm text-slate-300">
@@ -1169,13 +1169,13 @@ export default function RestaurantProfilePage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-teal-200">Community summary</p>
                 <p className="mt-1 text-sm text-slate-100">{selectedDishDetails.summary}</p>
                 <p className="mt-2 text-xs text-slate-400">
-                  Auto-generated from all submitted dish reviews and kept up to date as new reviews come in.
+                  Auto-generated from all submitted plate reviews and kept up to date as new reviews come in.
                 </p>
               </div>
 
               <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Dish photos</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Plate photos</p>
                   <button
                     type="button"
                     className="app-btn-secondary px-3 py-1 text-xs"
@@ -1202,7 +1202,7 @@ export default function RestaurantProfilePage() {
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={photoUrl}
-                              alt={`Dish photo for ${selectedDishDetails.dish.name}`}
+                              alt={`Plate photo for ${selectedDishDetails.dish.name}`}
                               className="h-36 w-full rounded-lg object-cover"
                             />
                             <p className="mt-2 break-all text-xs text-teal-200">Open full image</p>
@@ -1210,7 +1210,7 @@ export default function RestaurantProfilePage() {
                         ))}
                       </div>
                     ) : (
-                      <p className="app-muted text-xs">No dish photos have been uploaded yet.</p>
+                      <p className="app-muted text-xs">No plate photos have been uploaded yet.</p>
                     )}
                   </div>
                 )}
@@ -1234,7 +1234,7 @@ export default function RestaurantProfilePage() {
                         rel="noreferrer"
                         className="mt-1 inline-block text-xs text-teal-200 underline"
                       >
-                        View dish photo
+                        View plate photo
                       </a>
                     )}
                   </li>

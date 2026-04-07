@@ -72,7 +72,7 @@ export default function SharedDashboardPage() {
           {data ? `${data.user.name}'s shared dashboard` : 'Shared dashboard'}
         </h1>
         <p className="app-muted mt-2 text-sm">
-          View of top dishes, top restaurants, and recent reviews.
+          View of top plates, top restaurants, and recent reviews.
         </p>
       </section>
 
@@ -82,7 +82,7 @@ export default function SharedDashboardPage() {
       {data && (
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <section className="app-card-soft md:col-span-1">
-            <h2 className="app-section-title">Top dishes</h2>
+            <h2 className="app-section-title">Top plates</h2>
             <ul className="mt-2 space-y-2 text-sm">
               {data.highestRatedDishes.length ? (
                 data.highestRatedDishes.map((item) => (
@@ -93,7 +93,7 @@ export default function SharedDashboardPage() {
                   </li>
                 ))
               ) : (
-                <li className="app-muted">No dish reviews yet.</li>
+                <li className="app-muted">No plate reviews yet.</li>
               )}
             </ul>
           </section>

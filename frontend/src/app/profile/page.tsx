@@ -82,7 +82,7 @@ export default function ProfilePage() {
                   <p className="font-medium">
                     {review.dish.name} ({review.dish.category}) @ {review.restaurant.name}
                   </p>
-                  <p className="text-slate-300">Dish score: {review.dishScore}</p>
+                  <p className="text-slate-300">Plate score: {review.dishScore}</p>
                   {review.reviewText && <p className="app-muted">“{review.reviewText}”</p>}
                 </li>
               ))

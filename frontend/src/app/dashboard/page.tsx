@@ -211,7 +211,7 @@ function DashboardPageContent() {
                   </li>
                 ))
               ) : (
-                <li className="app-muted">No saved recipe links yet. Submit a high-rated dish review to get matches.</li>
+                <li className="app-muted">No saved recipe links yet. Submit a high-rated plate review to get matches.</li>
               )}
             </ul>
           </section>
@@ -238,7 +238,7 @@ function DashboardPageContent() {
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <section className="app-card-soft md:col-span-1">
-              <h2 className="app-section-title">Top dishes</h2>
+              <h2 className="app-section-title">Top plates</h2>
               <ul className="mt-2 space-y-2 text-sm">
                 {data.highestRatedDishes.map((item) => (
                   <li key={item.reviewId} className="text-slate-300">

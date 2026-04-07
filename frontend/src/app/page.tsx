@@ -274,9 +274,9 @@ export default function HomePage() {
       <NavBar />
 
       <section className="app-card">
-        <h1 className="app-title">Find restaurants and rate dishes</h1>
+        <h1 className="app-title">Find restaurants and rate plates</h1>
         <p className="app-muted mt-2">
-          Search by restaurant name, cuisine, dish type, ZIP code, city, or address.
+          Search by restaurant name, cuisine, plate type, ZIP code, city, or address.
         </p>
 
         <form className="mt-4 grid gap-3 sm:flex sm:items-center" onSubmit={onSearch}>
@@ -362,7 +362,7 @@ export default function HomePage() {
 
             {allDishTypeFilters.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-slate-200">Filter by dish type</h3>
+                <h3 className="text-sm font-semibold text-slate-200">Filter by plate type</h3>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {allDishTypeFilters.map((dishType) => {
                     const isActive = filters.dishTypeFilters.includes(dishType);
@@ -415,7 +415,7 @@ export default function HomePage() {
                       }));
                     }}
                   >
-                    {chip.kind === 'cuisine' ? `Cuisine: ${chip.value}` : `Dish: ${chip.value}`} ✕
+                    {chip.kind === 'cuisine' ? `Cuisine: ${chip.value}` : `Plate: ${chip.value}`} ✕
                   </button>
                 ))}
                 <button
@@ -453,7 +453,7 @@ export default function HomePage() {
               Cuisine: {restaurant.cuisines?.length ? restaurant.cuisines.join(', ') : 'Not available'}
             </p>
             <p className="mt-1 text-xs text-slate-300">
-              Dish types: {restaurant.dishTypes?.length ? restaurant.dishTypes.join(', ') : 'Not available'}
+              Plate types: {restaurant.dishTypes?.length ? restaurant.dishTypes.join(', ') : 'Not available'}
             </p>
             <p className="mt-2 text-sm text-slate-300">
               Overall: {restaurant.overallRating ?? 'No ratings yet'} · Food: {restaurant.foodRating ?? 'No ratings yet'}
@@ -487,7 +487,7 @@ export default function HomePage() {
 
       {hasSearched && results.length === 0 && !loading && !locationLoading && !error && (
         <section className="app-card mt-6">
-          <p className="app-muted">No results found. Try another restaurant name, cuisine, or dish type.</p>
+          <p className="app-muted">No results found. Try another restaurant name, cuisine, or plate type.</p>
         </section>
       )}
 
