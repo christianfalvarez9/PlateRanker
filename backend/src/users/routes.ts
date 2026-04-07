@@ -3,15 +3,19 @@ import { requireAuth } from '../middleware/auth';
 import { asyncHandler } from '../utils/http';
 import {
   addWantToVisitRestaurant,
+  getDefaultSearchLocation,
   getPublicUserDashboard,
   getUserDashboard,
   getUserReviews,
   listWantToVisitRestaurants,
+  removeDefaultSearchLocation,
   removeWantToVisitRestaurant,
+  updateDefaultSearchLocation,
   updateRecipePreference,
 } from './service';
 import {
   addWantToVisitSchema,
+  updateDefaultSearchLocationSchema,
   updateRecipePreferenceSchema,
   wantToVisitRestaurantParamSchema,
 } from './validators';
@@ -50,6 +54,34 @@ usersRouter.patch(
   asyncHandler(async (req, res) => {
     const input = updateRecipePreferenceSchema.parse(req.body);
     const user = await updateRecipePreference(req.params.id, input.recipeMatchEnabled, req.user!.id);
+    res.json(user);
+  }),
+);
+
+usersRouter.get(
+  '/me/preferences/search-location',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const result = await getDefaultSearchLocation(req.user!.id);
+    res.json(result);
+  }),
+);
+
+usersRouter.patch(
+  '/me/preferences/search-location',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = updateDefaultSearchLocationSchema.parse(req.body);
+    const user = await updateDefaultSearchLocation(req.user!.id, input.defaultSearchLocation);
+    res.json(user);
+  }),
+);
+
+usersRouter.delete(
+  '/me/preferences/search-location',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const user = await removeDefaultSearchLocation(req.user!.id);
     res.json(user);
   }),
 );

@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { asyncHandler } from '../utils/http';
-import { searchRestaurantsSchema } from './validators';
+import { discoveryRestaurantsSchema, searchRestaurantsSchema } from './validators';
 import {
   getDishDetails,
+  getLocationDiscovery,
   getRestaurantMenu,
   getRestaurantProfile,
   getRestaurantReviews,
@@ -11,6 +12,15 @@ import {
 } from './service';
 
 export const restaurantsRouter = Router();
+
+restaurantsRouter.get(
+  '/discovery',
+  asyncHandler(async (req, res) => {
+    const input = discoveryRestaurantsSchema.parse(req.query);
+    const result = await getLocationDiscovery(input);
+    res.json(result);
+  }),
+);
 
 restaurantsRouter.get(
   '/search',

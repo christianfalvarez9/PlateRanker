@@ -11,6 +11,7 @@ type AuthResponse = {
     id: string;
     name: string;
     email: string;
+    defaultSearchLocation: string | null;
     recipeMatchEnabled: boolean;
   };
 };
@@ -23,13 +24,16 @@ function signToken(user: Pick<User, 'id' | 'email'>): string {
   return jwt.sign({ sub: user.id, email: user.email }, env.jwtSecret, signOptions);
 }
 
-function formatAuthResponse(user: Pick<User, 'id' | 'name' | 'email' | 'recipeMatchEnabled'>): AuthResponse {
+function formatAuthResponse(
+  user: Pick<User, 'id' | 'name' | 'email' | 'defaultSearchLocation' | 'recipeMatchEnabled'>,
+): AuthResponse {
   return {
     token: signToken(user),
     user: {
       id: user.id,
       name: user.name,
       email: user.email,
+      defaultSearchLocation: user.defaultSearchLocation,
       recipeMatchEnabled: user.recipeMatchEnabled,
     },
   };
@@ -52,6 +56,7 @@ export async function registerUser(input: { name: string; email: string; passwor
       id: true,
       name: true,
       email: true,
+      defaultSearchLocation: true,
       recipeMatchEnabled: true,
     },
   });

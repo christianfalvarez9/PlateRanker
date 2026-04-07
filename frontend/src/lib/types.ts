@@ -4,6 +4,7 @@ export type AuthResponse = {
     id: string;
     name: string;
     email: string;
+    defaultSearchLocation: string | null;
     recipeMatchEnabled: boolean;
   };
 };

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { NavBar } from '@/components/NavBar';
 import { apiRequest } from '@/lib/api';
 import { Restaurant } from '@/lib/types';
-import { getToken } from '@/lib/auth';
+import { getToken, getUser } from '@/lib/auth';
 
 type WantToVisitResponse = {
   id: string;
@@ -14,6 +14,44 @@ type WantToVisitResponse = {
     id: string;
     name: string;
   };
+};
+
+type SearchLocationPreferenceResponse = {
+  defaultSearchLocation: string | null;
+  updatedAt: string;
+};
+
+type DiscoveryPlateItem = {
+  dishId: string;
+  dishName: string;
+  restaurantId: string;
+  restaurantName: string;
+  currentDishRating: number;
+  reviewCount: number;
+  trendIncrease?: number;
+  trendLabel?: string;
+};
+
+type DiscoveryResponse = {
+  location: string;
+  topRatedPlates: DiscoveryPlateItem[];
+  topRestaurants: Array<{
+    restaurantId: string;
+    restaurantName: string;
+    overallRating: number;
+  }>;
+  trendingPlates: {
+    available: boolean;
+    reason: 'OK' | 'NO_RESULTS_FOR_LOCATION' | 'INSUFFICIENT_7_DAY_TREND_DATA';
+    items: DiscoveryPlateItem[];
+  };
+};
+
+type Viewer = {
+  id: string;
+  name: string;
+  email: string;
+  defaultSearchLocation?: string | null;
 };
 
 const RADIUS_OPTIONS = [5, 10, 20, 50] as const;
@@ -47,13 +85,21 @@ function toggleValue(values: string[], value: string): string[] {
 }
 
 export default function HomePage() {
+  const viewer = getUser<Viewer>();
+  const token = getToken();
+
   const [query, setQuery] = useState('');
+  const [locationQuery, setLocationQuery] = useState(viewer?.defaultSearchLocation ?? '');
+  const [savedDefaultLocation, setSavedDefaultLocation] = useState(viewer?.defaultSearchLocation ?? '');
   const [results, setResults] = useState<Restaurant[]>([]);
+  const [discovery, setDiscovery] = useState<DiscoveryResponse | null>(null);
   const [wantToVisitIds, setWantToVisitIds] = useState<Set<string>>(new Set());
   const [radiusMiles, setRadiusMiles] = useState<RadiusMiles>(5);
   const [visibleCount, setVisibleCount] = useState(RESULTS_PAGE_SIZE);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const [wantToVisitSyncWarning, setWantToVisitSyncWarning] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [saveLoadingByRestaurantId, setSaveLoadingByRestaurantId] = useState<Record<string, boolean>>({});
@@ -63,8 +109,6 @@ export default function HomePage() {
     dishTypeFilters: [],
   });
   const lastSearchContextRef = useRef<SearchContext | null>(null);
-
-  const token = getToken();
 
   useEffect(() => {
     const loadWantToVisit = async () => {
@@ -88,6 +132,57 @@ export default function HomePage() {
 
     void loadWantToVisit();
   }, [token]);
+
+  useEffect(() => {
+    const loadDefaultSearchLocation = async () => {
+      if (!token) {
+        setSavedDefaultLocation('');
+        return;
+      }
+
+      try {
+        const result = await apiRequest<SearchLocationPreferenceResponse>('/users/me/preferences/search-location', {
+          token,
+        });
+        const nextLocation = result.defaultSearchLocation ?? '';
+        setSavedDefaultLocation(nextLocation);
+        setLocationQuery(nextLocation);
+      } catch {
+        setSavedDefaultLocation('');
+      }
+    };
+
+    void loadDefaultSearchLocation();
+  }, [token]);
+
+  useEffect(() => {
+    const loadDiscovery = async () => {
+      if (!savedDefaultLocation.trim()) {
+        setDiscovery(null);
+        setDiscoveryError(null);
+        return;
+      }
+
+      setDiscoveryLoading(true);
+      setDiscoveryError(null);
+
+      try {
+        const params = new URLSearchParams({
+          location: savedDefaultLocation,
+          radiusMiles: String(radiusMiles),
+        });
+        const result = await apiRequest<DiscoveryResponse>(`/restaurants/discovery?${params.toString()}`);
+        setDiscovery(result);
+      } catch (err) {
+        setDiscoveryError(err instanceof Error ? err.message : 'Failed to load personalized discovery data');
+        setDiscovery(null);
+      } finally {
+        setDiscoveryLoading(false);
+      }
+    };
+
+    void loadDiscovery();
+  }, [savedDefaultLocation, radiusMiles]);
 
   const runSearch = async (context: SearchContext) => {
     const params = new URLSearchParams({
@@ -188,6 +283,17 @@ export default function HomePage() {
 
   const onSearch = async (event: FormEvent) => {
     event.preventDefault();
+
+    const trimmedQuery = query.trim();
+    const trimmedLocation = locationQuery.trim();
+    if (!trimmedQuery && !trimmedLocation) {
+      setError('Enter a search term, a location, or both.');
+      return;
+    }
+
+    const composedQuery =
+      trimmedQuery && trimmedLocation ? `${trimmedQuery} ${trimmedLocation}` : trimmedQuery || trimmedLocation;
+
     setLoading(true);
     setError(null);
 
@@ -197,7 +303,7 @@ export default function HomePage() {
         dishTypeFilters: [],
       });
       await runSearch({
-        query,
+        query: composedQuery,
         mode: 'typed',
       });
     } catch (err) {
@@ -224,7 +330,7 @@ export default function HomePage() {
             dishTypeFilters: [],
           });
           await runSearch({
-            query: query.trim() || 'nearby restaurants',
+            query: query.trim() || locationQuery.trim() || 'nearby restaurants',
             lat: position.coords.latitude,
             lng: position.coords.longitude,
             mode: 'location',
@@ -278,22 +384,35 @@ export default function HomePage() {
         <p className="app-muted mt-2">
           Search by restaurant name, cuisine, plate type, ZIP code, city, or address.
         </p>
+        <p className="app-muted mt-1 text-xs">
+          {savedDefaultLocation
+            ? `Your saved default location is ${savedDefaultLocation}. One-time edits below won't overwrite it.`
+            : 'Tip: Save a default location in your profile to personalize discovery boxes.'}
+        </p>
 
-        <form className="mt-4 grid gap-3 sm:flex sm:items-center" onSubmit={onSearch}>
-          <input
-            className="app-input sm:flex-1"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Try: Joe's Pizza, Italian, burgers, 10001, or New York"
-            required
-          />
-          <div className="flex items-center gap-2">
+        <form className="mt-4 grid gap-3" onSubmit={onSearch}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <input
+              className="app-input"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="What are you looking for? (restaurant, cuisine, plate type)"
+            />
+            <input
+              className="app-input"
+              value={locationQuery}
+              onChange={(e) => setLocationQuery(e.target.value)}
+              placeholder="Location (city, ZIP code, or full address)"
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-[auto_1fr_1fr] sm:items-center">
             <label htmlFor="radiusMiles" className="text-sm whitespace-nowrap text-slate-300">
               Radius
             </label>
             <select
               id="radiusMiles"
-              className="app-select w-full min-w-[100px] sm:w-auto"
+              className="app-select w-full min-w-[100px]"
               value={radiusMiles}
               onChange={(event) => {
                 const nextRadius = Number(event.target.value);
@@ -308,22 +427,164 @@ export default function HomePage() {
                 </option>
               ))}
             </select>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button className="app-btn-primary w-full" disabled={loading}>
+                {loading ? 'Searching...' : 'Search'}
+              </button>
+              <button
+                type="button"
+                className="app-btn-secondary w-full"
+                onClick={searchNearMe}
+                disabled={locationLoading}
+              >
+                {locationLoading ? 'Locating...' : 'Use my location'}
+              </button>
+            </div>
           </div>
-          <button className="app-btn-primary w-full sm:w-auto" disabled={loading}>
-            {loading ? 'Searching...' : 'Search'}
-          </button>
-          <button
-            type="button"
-            className="app-btn-secondary w-full sm:w-auto"
-            onClick={searchNearMe}
-            disabled={locationLoading}
-          >
-            {locationLoading ? 'Locating...' : 'Use my location'}
-          </button>
         </form>
 
         {error && <p className="app-error mt-3">{error}</p>}
         {wantToVisitSyncWarning && <p className="app-error mt-3">{wantToVisitSyncWarning}</p>}
+      </section>
+
+      <section className="app-card mt-6">
+        <h2 className="app-section-title">Discovery</h2>
+        {!token && (
+          <p className="app-muted mt-2 text-sm">
+            Login and save a default search location in your profile to get personalized discovery lists.
+          </p>
+        )}
+
+        {token && !savedDefaultLocation && (
+          <div className="mt-2 text-sm">
+            <p className="app-muted">No default location saved yet.</p>
+            <Link href="/profile" className="mt-2 inline-block text-teal-300 underline hover:text-teal-200">
+              Add a default location in Profile
+            </Link>
+          </div>
+        )}
+
+        {token && savedDefaultLocation && (
+          <>
+            <p className="app-muted mt-2 text-sm">
+              Showing discoveries for your saved default location: <span className="text-slate-100">{savedDefaultLocation}</span>
+            </p>
+            {discoveryLoading && <p className="app-muted mt-3 text-sm">Loading discovery boxes...</p>}
+            {discoveryError && <p className="app-error mt-3">{discoveryError}</p>}
+
+            {!discoveryLoading && !discoveryError && discovery && (
+              <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                <article className="app-card-soft">
+                  <h3 className="text-sm font-semibold text-slate-100">Top 10 Rated Plates</h3>
+                  <ul className="mt-3 space-y-2">
+                    {discovery.topRatedPlates.length ? (
+                      discovery.topRatedPlates.map((plate) => (
+                        <li key={`top-${plate.dishId}-${plate.restaurantId}`}>
+                          {plate.restaurantId ? (
+                            <Link
+                              href={`/restaurants/${plate.restaurantId}`}
+                              className="block rounded-lg border border-slate-800 bg-slate-900/50 p-2 transition hover:border-teal-400/50 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-slate-100 break-words">{plate.dishName}</p>
+                                  <p className="mt-0.5 text-xs text-slate-400 break-words">{plate.restaurantName}</p>
+                                </div>
+                                <span className="shrink-0 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-1 text-xs font-semibold text-teal-200">
+                                  {plate.currentDishRating.toFixed(2)}
+                                </span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+                              <p className="text-sm font-medium text-slate-100 break-words">{plate.dishName}</p>
+                              <p className="mt-0.5 text-xs text-slate-400 break-words">Link unavailable</p>
+                            </div>
+                          )}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="app-muted text-sm">No plate ratings yet for this location.</li>
+                    )}
+                  </ul>
+                </article>
+
+                <article className="app-card-soft">
+                  <h3 className="text-sm font-semibold text-slate-100">Trending Plates</h3>
+                  {discovery.trendingPlates.available ? (
+                    <ul className="mt-3 space-y-2">
+                      {discovery.trendingPlates.items.map((plate) => (
+                        <li key={`trend-${plate.dishId}-${plate.restaurantId}`}>
+                          {plate.restaurantId ? (
+                            <Link
+                              href={`/restaurants/${plate.restaurantId}`}
+                              className="block rounded-lg border border-slate-800 bg-slate-900/50 p-2 transition hover:border-teal-400/50 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-slate-100 break-words">{plate.dishName}</p>
+                                  <p className="mt-0.5 text-xs text-slate-400 break-words">{plate.restaurantName}</p>
+                                  {plate.trendLabel && (
+                                    <p className="mt-1 text-[11px] text-emerald-300 break-words">{plate.trendLabel}</p>
+                                  )}
+                                </div>
+                                <span className="shrink-0 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-1 text-xs font-semibold text-teal-200">
+                                  {plate.currentDishRating.toFixed(2)}
+                                </span>
+                              </div>
+                            </Link>
+                          ) : (
+                            <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+                              <p className="text-sm font-medium text-slate-100 break-words">{plate.dishName}</p>
+                              <p className="mt-0.5 text-xs text-slate-400 break-words">Link unavailable</p>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-sm text-slate-300">
+                      {discovery.trendingPlates.reason === 'NO_RESULTS_FOR_LOCATION'
+                        ? 'No nearby results were found for your saved location.'
+                        : 'Not enough 7-day trend data yet. Trending plates will appear once enough recent and prior-week ratings are available.'}
+                    </div>
+                  )}
+                </article>
+
+                <article className="app-card-soft">
+                  <h3 className="text-sm font-semibold text-slate-100">Top 10 Restaurants</h3>
+                  <ul className="mt-3 space-y-2">
+                    {discovery.topRestaurants.length ? (
+                      discovery.topRestaurants.map((restaurant) => (
+                        <li key={`rest-${restaurant.restaurantId}`}>
+                          {restaurant.restaurantId ? (
+                            <Link
+                              href={`/restaurants/${restaurant.restaurantId}`}
+                              className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-2 transition hover:border-teal-400/50 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                            >
+                              <p className="text-sm font-medium text-slate-100 break-words">{restaurant.restaurantName}</p>
+                              <span className="shrink-0 rounded-md border border-indigo-400/30 bg-indigo-400/10 px-2 py-1 text-xs font-semibold text-indigo-200">
+                                {restaurant.overallRating.toFixed(2)}
+                              </span>
+                            </Link>
+                          ) : (
+                            <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+                              <p className="text-sm font-medium text-slate-100 break-words">{restaurant.restaurantName}</p>
+                              <p className="mt-0.5 text-xs text-slate-400 break-words">Link unavailable</p>
+                            </div>
+                          )}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="app-muted text-sm">No restaurant ratings yet for this location.</li>
+                    )}
+                  </ul>
+                </article>
+              </div>
+            )}
+          </>
+        )}
       </section>
 
       {(allCuisineFilters.length > 0 || allDishTypeFilters.length > 0) && (

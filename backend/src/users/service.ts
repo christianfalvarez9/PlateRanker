@@ -219,6 +219,65 @@ export async function updateRecipePreference(userId: string, enabled: boolean, r
   });
 }
 
+export async function getDefaultSearchLocation(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      defaultSearchLocation: true,
+      updatedAt: true,
+    },
+  });
+
+  if (!user) {
+    throw new HttpError(404, 'User not found');
+  }
+
+  return {
+    defaultSearchLocation: user.defaultSearchLocation,
+    updatedAt: user.updatedAt,
+  };
+}
+
+export async function updateDefaultSearchLocation(userId: string, defaultSearchLocation: string) {
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      defaultSearchLocation,
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      defaultSearchLocation: true,
+      recipeMatchEnabled: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  return user;
+}
+
+export async function removeDefaultSearchLocation(userId: string) {
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      defaultSearchLocation: null,
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      defaultSearchLocation: true,
+      recipeMatchEnabled: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  return user;
+}
+
 export async function addWantToVisitRestaurant(userId: string, restaurantId: string) {
   const restaurant = await prisma.restaurant.findUnique({ where: { id: restaurantId } });
   if (!restaurant) {

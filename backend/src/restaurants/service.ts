@@ -12,6 +12,37 @@ export type SearchRestaurantResult = Awaited<ReturnType<typeof prisma.restaurant
   matchReasons: SearchMatchReason[];
 };
 
+type PlaceSearchResult = Awaited<ReturnType<typeof searchGooglePlaces>>[number];
+
+type DiscoveryPlateItem = {
+  dishId: string;
+  dishName: string;
+  restaurantId: string;
+  restaurantName: string;
+  currentDishRating: number;
+  reviewCount: number;
+};
+
+type DiscoveryTrendingPlateItem = DiscoveryPlateItem & {
+  trendIncrease: number;
+  trendLabel: string;
+};
+
+type DiscoveryResponse = {
+  location: string;
+  topRatedPlates: DiscoveryPlateItem[];
+  topRestaurants: Array<{
+    restaurantId: string;
+    restaurantName: string;
+    overallRating: number;
+  }>;
+  trendingPlates: {
+    available: boolean;
+    reason: 'OK' | 'NO_RESULTS_FOR_LOCATION' | 'INSUFFICIENT_7_DAY_TREND_DATA';
+    items: DiscoveryTrendingPlateItem[];
+  };
+};
+
 const CUISINE_BY_GOOGLE_TYPE: Record<string, string> = {
   italian_restaurant: 'Italian',
   mexican_restaurant: 'Mexican',
@@ -133,6 +164,36 @@ function roundToTwo(value: number): number {
 
 function ratingSortValue(value: number | null): number {
   return value ?? Number.NEGATIVE_INFINITY;
+}
+
+async function upsertRestaurantsFromPlaces(places: PlaceSearchResult[]) {
+  return Promise.all(
+    places.map(async (place) => {
+      const restaurant = await prisma.restaurant.upsert({
+        where: {
+          googlePlacesRef: place.placeId,
+        },
+        update: {
+          name: place.name,
+          address: place.address,
+          phone: place.phone,
+          website: place.website,
+        },
+        create: {
+          name: place.name,
+          googlePlacesRef: place.placeId,
+          address: place.address,
+          phone: place.phone,
+          website: place.website,
+        },
+      });
+
+      return {
+        restaurant,
+        place,
+      };
+    }),
+  );
 }
 
 const REVIEW_THEMES: Array<{ label: string; matchers: RegExp[] }> = [
@@ -265,34 +326,7 @@ export async function searchRestaurants(args: {
   const looksLikePostalCode = /^\d{5}(?:-\d{4})?$/.test(normalizedQuery);
 
   const places = await searchGooglePlaces(args);
-
-  const records = await Promise.all(
-    places.map(async (place) => {
-      const restaurant = await prisma.restaurant.upsert({
-        where: {
-          googlePlacesRef: place.placeId,
-        },
-        update: {
-          name: place.name,
-          address: place.address,
-          phone: place.phone,
-          website: place.website,
-        },
-        create: {
-          name: place.name,
-          googlePlacesRef: place.placeId,
-          address: place.address,
-          phone: place.phone,
-          website: place.website,
-        },
-      });
-
-      return {
-        restaurant,
-        place,
-      };
-    }),
-  );
+  const records = await upsertRestaurantsFromPlaces(places);
 
   const restaurantIds = records.map((entry) => entry.restaurant.id);
   const dishesByRestaurant = await prisma.dish.findMany({
@@ -379,6 +413,232 @@ export async function searchRestaurants(args: {
 
     return a.name.localeCompare(b.name);
   });
+}
+
+export async function getLocationDiscovery(args: { location: string; radiusMiles?: number }): Promise<DiscoveryResponse> {
+  const location = args.location.trim();
+  const places = await searchGooglePlaces({
+    query: location,
+    radiusMiles: args.radiusMiles,
+  });
+  const records = await upsertRestaurantsFromPlaces(places);
+  const restaurantIds = uniqueStrings(records.map((entry) => entry.restaurant.id));
+
+  if (!restaurantIds.length) {
+    return {
+      location,
+      topRatedPlates: [],
+      topRestaurants: [],
+      trendingPlates: {
+        available: false,
+        reason: 'NO_RESULTS_FOR_LOCATION',
+        items: [],
+      },
+    };
+  }
+
+  const [topRestaurantsRaw, allTimeDishAgg, recentDishAgg, previousDishAgg] = await Promise.all([
+    prisma.restaurant.findMany({
+      where: {
+        id: {
+          in: restaurantIds,
+        },
+        overallRating: {
+          not: null,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        overallRating: true,
+      },
+      orderBy: [{ overallRating: 'desc' }, { name: 'asc' }],
+      take: 10,
+    }),
+    prisma.review.groupBy({
+      by: ['dishId', 'restaurantId'],
+      where: {
+        restaurantId: {
+          in: restaurantIds,
+        },
+      },
+      _avg: {
+        dishScore: true,
+      },
+      _count: {
+        _all: true,
+      },
+    }),
+    prisma.review.groupBy({
+      by: ['dishId', 'restaurantId'],
+      where: {
+        restaurantId: {
+          in: restaurantIds,
+        },
+        createdAt: {
+          gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        },
+      },
+      _avg: {
+        dishScore: true,
+      },
+      _count: {
+        _all: true,
+      },
+    }),
+    prisma.review.groupBy({
+      by: ['dishId', 'restaurantId'],
+      where: {
+        restaurantId: {
+          in: restaurantIds,
+        },
+        createdAt: {
+          gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000),
+          lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        },
+      },
+      _avg: {
+        dishScore: true,
+      },
+      _count: {
+        _all: true,
+      },
+    }),
+  ]);
+
+  const dishIds = uniqueStrings(allTimeDishAgg.map((item) => item.dishId));
+  const dishes = dishIds.length
+    ? await prisma.dish.findMany({
+        where: {
+          id: {
+            in: dishIds,
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          restaurant: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      })
+    : [];
+
+  const dishById = new Map(dishes.map((dish) => [dish.id, dish]));
+
+  const allTimeByDishRestaurantKey = new Map<string, DiscoveryPlateItem>();
+  for (const aggregate of allTimeDishAgg) {
+    if (aggregate._avg.dishScore === null) {
+      continue;
+    }
+
+    const dish = dishById.get(aggregate.dishId);
+    if (!dish) {
+      continue;
+    }
+
+    const item: DiscoveryPlateItem = {
+      dishId: dish.id,
+      dishName: dish.name,
+      restaurantId: dish.restaurant.id,
+      restaurantName: dish.restaurant.name,
+      currentDishRating: roundToTwo(aggregate._avg.dishScore),
+      reviewCount: aggregate._count._all,
+    };
+
+    allTimeByDishRestaurantKey.set(`${aggregate.dishId}:${aggregate.restaurantId}`, item);
+  }
+
+  const topRatedPlates = Array.from(allTimeByDishRestaurantKey.values())
+    .sort((a, b) => {
+      const ratingDiff = b.currentDishRating - a.currentDishRating;
+      if (ratingDiff !== 0) {
+        return ratingDiff;
+      }
+
+      const reviewCountDiff = b.reviewCount - a.reviewCount;
+      if (reviewCountDiff !== 0) {
+        return reviewCountDiff;
+      }
+
+      return a.dishName.localeCompare(b.dishName);
+    })
+    .slice(0, 10);
+
+  const previousByDishRestaurantKey = new Map(
+    previousDishAgg.map((aggregate) => [
+      `${aggregate.dishId}:${aggregate.restaurantId}`,
+      {
+        average: aggregate._avg.dishScore,
+        reviewCount: aggregate._count._all,
+      },
+    ]),
+  );
+
+  const trendingCandidates = recentDishAgg
+    .map((recentAggregate) => {
+      if (recentAggregate._avg.dishScore === null) {
+        return null;
+      }
+
+      const key = `${recentAggregate.dishId}:${recentAggregate.restaurantId}`;
+      const previous = previousByDishRestaurantKey.get(key);
+      if (!previous || previous.average === null) {
+        return null;
+      }
+
+      const baseDish = allTimeByDishRestaurantKey.get(key);
+      if (!baseDish) {
+        return null;
+      }
+
+      const trendIncrease = roundToTwo(recentAggregate._avg.dishScore - previous.average);
+      if (trendIncrease <= 0) {
+        return null;
+      }
+
+      return {
+        ...baseDish,
+        trendIncrease,
+        trendLabel: `+${trendIncrease.toFixed(2)} vs previous 7 days`,
+      } as DiscoveryTrendingPlateItem;
+    })
+    .filter((item): item is DiscoveryTrendingPlateItem => Boolean(item))
+    .sort((a, b) => {
+      const trendDiff = b.trendIncrease - a.trendIncrease;
+      if (trendDiff !== 0) {
+        return trendDiff;
+      }
+
+      return b.currentDishRating - a.currentDishRating;
+    });
+
+  const trendingTop = trendingCandidates.slice(0, 10);
+
+  return {
+    location,
+    topRatedPlates,
+    topRestaurants: topRestaurantsRaw.map((restaurant) => ({
+      restaurantId: restaurant.id,
+      restaurantName: restaurant.name,
+      overallRating: roundToTwo(restaurant.overallRating as number),
+    })),
+    trendingPlates:
+      trendingTop.length < 10
+        ? {
+            available: false,
+            reason: 'INSUFFICIENT_7_DAY_TREND_DATA',
+            items: [],
+          }
+        : {
+            available: true,
+            reason: 'OK',
+            items: trendingTop,
+          },
+  };
 }
 
 export function parseSearchFilters(input: {

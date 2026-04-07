@@ -36,6 +36,7 @@ model User {
   name               String
   email              String   @unique
   passwordHash       String
+  defaultSearchLocation String?
   recipeMatchEnabled Boolean  @default(true)
   mealReviews        MealReview[]
   reviews            Review[]
