@@ -228,11 +228,13 @@ export default function RestaurantProfilePage() {
   const [newDishStatus, setNewDishStatus] = useState<DishStatus>('ACTIVE');
   const [menuActionLoading, setMenuActionLoading] = useState(false);
   const [menuSyncLoading, setMenuSyncLoading] = useState(false);
-  const [selectedDishDetails, setSelectedDishDetails] = useState<DishDetailsResponse | null>(null);
-  const [dishDetailsLoading, setDishDetailsLoading] = useState(false);
+  const [expandedDishId, setExpandedDishId] = useState<string | null>(null);
+  const [dishDetailsById, setDishDetailsById] = useState<Record<string, DishDetailsResponse>>({});
+  const [dishDetailsLoadingById, setDishDetailsLoadingById] = useState<Record<string, boolean>>({});
+  const [dishDetailsErrorById, setDishDetailsErrorById] = useState<Record<string, string | null>>({});
   const [dishImageUrls, setDishImageUrls] = useState<Record<string, string>>({});
   const [dishPhotoUploadStates, setDishPhotoUploadStates] = useState<Record<string, DishPhotoUploadState>>({});
-  const [showDishPhotos, setShowDishPhotos] = useState(false);
+  const [showDishPhotosById, setShowDishPhotosById] = useState<Record<string, boolean>>({});
   const menuSyncInFlight = useRef(false);
   const reviewsEmptySyncAttemptedRef = useRef(false);
 
@@ -390,6 +392,17 @@ export default function RestaurantProfilePage() {
     });
   }, [availableDishesForSelectedCourse]);
 
+  useEffect(() => {
+    if (!expandedDishId) {
+      return;
+    }
+
+    const stillExists = menuItems.some((dish) => dish.id === expandedDishId);
+    if (!stillExists) {
+      setExpandedDishId(null);
+    }
+  }, [expandedDishId, menuItems]);
+
   const updateDishDraft = <K extends keyof DishReviewDraft,>(
     dishId: string,
     key: K,
@@ -404,18 +417,44 @@ export default function RestaurantProfilePage() {
     }));
   };
 
-  const openDishDetails = async (dishId: string) => {
-    setDishDetailsLoading(true);
-    setSelectedDishDetails(null);
-    setShowDishPhotos(false);
+  const toggleDishDetails = async (dishId: string) => {
+    setDishDetailsErrorById((previous) => ({
+      ...previous,
+      [dishId]: null,
+    }));
+
+    if (expandedDishId === dishId) {
+      setExpandedDishId(null);
+      return;
+    }
+
+    setExpandedDishId(dishId);
+
+    if (dishDetailsById[dishId] || dishDetailsLoadingById[dishId]) {
+      return;
+    }
+
+    setDishDetailsLoadingById((previous) => ({
+      ...previous,
+      [dishId]: true,
+    }));
 
     try {
       const details = await apiRequest<DishDetailsResponse>(`/restaurants/${restaurantId}/menu/${dishId}`);
-      setSelectedDishDetails(details);
+      setDishDetailsById((previous) => ({
+        ...previous,
+        [dishId]: details,
+      }));
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to load plate details');
+      setDishDetailsErrorById((previous) => ({
+        ...previous,
+        [dishId]: err instanceof Error ? err.message : 'Failed to load plate details',
+      }));
     } finally {
-      setDishDetailsLoading(false);
+      setDishDetailsLoadingById((previous) => ({
+        ...previous,
+        [dishId]: false,
+      }));
     }
   };
 
@@ -788,27 +827,153 @@ export default function RestaurantProfilePage() {
 
           <ul className="mt-3 space-y-2 text-sm">
             {data.menu.activeAndSeasonal.length ? (
-              data.menu.activeAndSeasonal.map((dish) => (
-                <li key={dish.id} className="app-list-item flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <button
-                    type="button"
-                    className="text-left break-words text-slate-300 hover:text-teal-200"
-                    onClick={() => void openDishDetails(dish.id)}
-                  >
-                    {dish.name} · {dish.category} · {dish.status}
-                    <span className="ml-2 text-xs text-slate-400">
-                      Rating: {dish.avgDishScore ? dish.avgDishScore.toFixed(2) : 'N/A'}
-                      {' '}({dish.reviewCount ?? 0})
-                    </span>
-                  </button>
-                  <span className="sr-only">
-                    Open details for {dish.name}
-                  </span>
-                  <button className="app-btn-secondary w-full px-3 py-1.5 sm:w-auto" onClick={() => flagUnavailable(dish.id)}>
-                    Flag unavailable ({dish.unavailableFlagCount})
-                  </button>
-                </li>
-              ))
+              data.menu.activeAndSeasonal.map((dish) => {
+                const isExpanded = expandedDishId === dish.id;
+                const dishDetails = dishDetailsById[dish.id];
+                const dishDetailsLoading = Boolean(dishDetailsLoadingById[dish.id]);
+                const dishDetailsError = dishDetailsErrorById[dish.id];
+                const showDishPhotos = Boolean(showDishPhotosById[dish.id]);
+
+                return (
+                  <li key={dish.id} className="app-list-item">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <button
+                        type="button"
+                        className="text-left break-words text-slate-300 hover:text-teal-200"
+                        onClick={() => void toggleDishDetails(dish.id)}
+                        aria-expanded={isExpanded}
+                        aria-controls={`dish-details-${dish.id}`}
+                      >
+                        {dish.name} · {dish.category} · {dish.status}
+                        <span className="ml-2 text-xs text-slate-400">
+                          Rating: {dish.avgDishScore ? dish.avgDishScore.toFixed(2) : 'N/A'} ({dish.reviewCount ?? 0})
+                        </span>
+                        <span className="ml-2 text-xs text-teal-300">{isExpanded ? 'Hide details' : 'View details'}</span>
+                      </button>
+
+                      <button
+                        className="app-btn-secondary w-full px-3 py-1.5 sm:w-auto"
+                        onClick={() => flagUnavailable(dish.id)}
+                      >
+                        Flag unavailable ({dish.unavailableFlagCount})
+                      </button>
+                    </div>
+
+                    {isExpanded && (
+                      <div
+                        id={`dish-details-${dish.id}`}
+                        className="mt-3 space-y-3 rounded-xl border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300"
+                      >
+                        {dishDetailsLoading && <p className="app-muted">Loading plate details...</p>}
+                        {dishDetailsError && !dishDetailsLoading && <p className="app-error">{dishDetailsError}</p>}
+
+                        {dishDetails && !dishDetailsLoading && (
+                          <>
+                            <p className="text-slate-100 font-medium">{dishDetails.dish.name}</p>
+                            <p>
+                              Overall: {dishDetails.aggregates.avgDishScore?.toFixed(2) ?? 'N/A'} · Reviews:{' '}
+                              {dishDetails.aggregates.reviewCount}
+                            </p>
+                            <p>
+                              Taste: {dishDetails.aggregates.avgTaste?.toFixed(2) ?? 'N/A'} · Portion Size:{' '}
+                              {dishDetails.aggregates.avgPortionSize?.toFixed(2) ?? 'N/A'} · Value:{' '}
+                              {dishDetails.aggregates.avgValue?.toFixed(2) ?? 'N/A'} · Presentation:{' '}
+                              {dishDetails.aggregates.avgPresentation?.toFixed(2) ?? 'N/A'} · Uniqueness:{' '}
+                              {dishDetails.aggregates.avgUniqueness?.toFixed(2) ?? 'N/A'}
+                            </p>
+
+                            <div className="rounded-xl border border-teal-400/30 bg-teal-400/10 p-3">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-teal-200">Community summary</p>
+                              <p className="mt-1 text-sm text-slate-100">{dishDetails.summary}</p>
+                              <p className="mt-2 text-xs text-slate-400">
+                                Auto-generated from all submitted plate reviews and kept up to date as new reviews come in.
+                              </p>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Plate photos</p>
+                                <button
+                                  type="button"
+                                  className="app-btn-secondary px-3 py-1 text-xs"
+                                  onClick={() =>
+                                    setShowDishPhotosById((previous) => ({
+                                      ...previous,
+                                      [dish.id]: !previous[dish.id],
+                                    }))
+                                  }
+                                >
+                                  {showDishPhotos
+                                    ? 'Hide photos'
+                                    : `Show photos (${dishDetails.photos.length})`}
+                                </button>
+                              </div>
+
+                              {showDishPhotos && (
+                                <div className="mt-3">
+                                  {dishDetails.photos.length ? (
+                                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                      {dishDetails.photos.map((photoUrl) => (
+                                        <a
+                                          key={photoUrl}
+                                          href={photoUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="app-list-item overflow-hidden"
+                                        >
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img
+                                            src={photoUrl}
+                                            alt={`Plate photo for ${dishDetails.dish.name}`}
+                                            className="h-36 w-full rounded-lg object-cover"
+                                          />
+                                          <p className="mt-2 break-all text-xs text-teal-200">Open full image</p>
+                                        </a>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="app-muted text-xs">No plate photos have been uploaded yet.</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            <ul className="space-y-2">
+                              {dishDetails.recentReviews.length ? (
+                                dishDetails.recentReviews.map((review) => (
+                                  <li key={review.id} className="app-list-item">
+                                    <p className="font-medium text-slate-100">
+                                      {review.user.name} · {review.dishScore.toFixed(2)}
+                                    </p>
+                                    <p className="app-muted text-xs">
+                                      Taste {review.tasteScore} · Portion Size {review.portionSizeScore} · Value{' '}
+                                      {review.valueScore} · Presentation {review.presentationScore} · Uniqueness{' '}
+                                      {review.uniquenessScore}
+                                    </p>
+                                    {review.reviewText && <p className="mt-1">“{review.reviewText}”</p>}
+                                    {review.imageUrl && (
+                                      <a
+                                        href={review.imageUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="mt-1 inline-block text-xs text-teal-200 underline"
+                                      >
+                                        View plate photo
+                                      </a>
+                                    )}
+                                  </li>
+                                ))
+                              ) : (
+                                <li className="app-muted text-xs">No recent plate reviews yet.</li>
+                              )}
+                            </ul>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })
             ) : (
               <li className="app-muted">
                 {menuSyncLoading ? 'Loading menu items…' : 'No active plates yet. Add one from the form above.'}
@@ -1134,116 +1299,6 @@ export default function RestaurantProfilePage() {
         </section>
       )}
 
-      {(dishDetailsLoading || selectedDishDetails) && (
-        <section className="app-card mt-6">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="app-section-title">Plate Details</h2>
-            {selectedDishDetails && (
-              <button
-                type="button"
-                className="app-btn-secondary px-3 py-1.5"
-                onClick={() => setSelectedDishDetails(null)}
-              >
-                Close
-              </button>
-            )}
-          </div>
-
-          {dishDetailsLoading && <p className="app-muted mt-2">Loading plate details...</p>}
-
-          {selectedDishDetails && (
-            <div className="mt-3 space-y-3 text-sm text-slate-300">
-              <p className="text-slate-100 font-medium">{selectedDishDetails.dish.name}</p>
-              <p>
-                Overall: {selectedDishDetails.aggregates.avgDishScore?.toFixed(2) ?? 'N/A'} · Reviews:{' '}
-                {selectedDishDetails.aggregates.reviewCount}
-              </p>
-              <p>
-                Taste: {selectedDishDetails.aggregates.avgTaste?.toFixed(2) ?? 'N/A'} · Portion Size:{' '}
-                {selectedDishDetails.aggregates.avgPortionSize?.toFixed(2) ?? 'N/A'} · Value:{' '}
-                {selectedDishDetails.aggregates.avgValue?.toFixed(2) ?? 'N/A'} · Presentation:{' '}
-                {selectedDishDetails.aggregates.avgPresentation?.toFixed(2) ?? 'N/A'} · Uniqueness:{' '}
-                {selectedDishDetails.aggregates.avgUniqueness?.toFixed(2) ?? 'N/A'}
-              </p>
-              <div className="rounded-xl border border-teal-400/30 bg-teal-400/10 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-teal-200">Community summary</p>
-                <p className="mt-1 text-sm text-slate-100">{selectedDishDetails.summary}</p>
-                <p className="mt-2 text-xs text-slate-400">
-                  Auto-generated from all submitted plate reviews and kept up to date as new reviews come in.
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Plate photos</p>
-                  <button
-                    type="button"
-                    className="app-btn-secondary px-3 py-1 text-xs"
-                    onClick={() => setShowDishPhotos((previous) => !previous)}
-                  >
-                    {showDishPhotos
-                      ? 'Hide photos'
-                      : `Show photos (${selectedDishDetails.photos.length})`}
-                  </button>
-                </div>
-
-                {showDishPhotos && (
-                  <div className="mt-3">
-                    {selectedDishDetails.photos.length ? (
-                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        {selectedDishDetails.photos.map((photoUrl) => (
-                          <a
-                            key={photoUrl}
-                            href={photoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="app-list-item overflow-hidden"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={photoUrl}
-                              alt={`Plate photo for ${selectedDishDetails.dish.name}`}
-                              className="h-36 w-full rounded-lg object-cover"
-                            />
-                            <p className="mt-2 break-all text-xs text-teal-200">Open full image</p>
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="app-muted text-xs">No plate photos have been uploaded yet.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <ul className="space-y-2">
-                {selectedDishDetails.recentReviews.map((review) => (
-                  <li key={review.id} className="app-list-item">
-                    <p className="font-medium text-slate-100">
-                      {review.user.name} · {review.dishScore.toFixed(2)}
-                    </p>
-                    <p className="app-muted text-xs">
-                      Taste {review.tasteScore} · Portion Size {review.portionSizeScore} · Value {review.valueScore} ·
-                      {' '}Presentation {review.presentationScore} · Uniqueness {review.uniquenessScore}
-                    </p>
-                    {review.reviewText && <p className="mt-1">“{review.reviewText}”</p>}
-                    {review.imageUrl && (
-                      <a
-                        href={review.imageUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 inline-block text-xs text-teal-200 underline"
-                      >
-                        View plate photo
-                      </a>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-      )}
     </>
   );
 }

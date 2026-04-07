@@ -2,6 +2,7 @@ substitutions:
   _REGION: us-central1
   _REPOSITORY: platerank
   _SERVICE: platerank-api
+  _MIGRATION_JOB: platerank-db-migrate
   _AR_HOST: us-central1-docker.pkg.dev
   _RUN_SA: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
   _CLOUDSQL_INSTANCE: "my-project:us-central1:platerank-sql"
@@ -30,6 +31,38 @@ steps:
     args:
       - push
       - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy migration job
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - ${_MIGRATION_JOB}
+      - --project=${PROJECT_ID}
+      - --region=${_REGION}
+      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - --service-account=${_RUN_SA}
+      - --task-timeout=900s
+      - --max-retries=0
+      - --command=npm
+      - --args=run,prisma:migrate:deploy,-w,backend
+      - --set-env-vars=NODE_ENV=production
+      - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
+      - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Run migrations
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - execute
+      - ${_MIGRATION_JOB}
+      - --project=${PROJECT_ID}
+      - --region=${_REGION}
+      - --wait
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: Deploy backend to Cloud Run

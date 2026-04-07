@@ -359,7 +359,9 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
    ```bash
    npm run prisma:migrate:deploy
    ```
-   For this scoring update specifically, ensure migration `20260407123000_review_value_portion_uniqueness` is applied before backend rollout to avoid runtime errors on `uniquenessScore` reads/writes.
+   For recent updates, ensure at least these migrations are applied before backend rollout:
+   - `20260407123000_review_value_portion_uniqueness`
+   - `20260407150000_user_default_search_location`
 5. Optional: seed data only if you intentionally want demo data in production.
 6. Verify API health endpoint:
    - `GET /health` returns `{ "status": "ok" }`
@@ -409,6 +411,11 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
 
 6. **Deploy backend**
    - Use `cloudbuild.backend.yaml` and customize substitutions (`_CLOUDSQL_INSTANCE`, `_DISH_PHOTO_BUCKET`, `_CORS_ALLOWLIST`, service account).
+   - Backend Cloud Build now includes a migration gate:
+     1) deploy/update Cloud Run Job `${_MIGRATION_JOB}` using backend image,
+     2) execute `npm run prisma:migrate:deploy -w backend` via that job,
+     3) only then deploy Cloud Run service revision.
+   - This ensures schema changes (e.g., `User.defaultSearchLocation`) are applied before serving traffic.
    ```bash
    gcloud builds submit --config cloudbuild.backend.yaml
    ```
@@ -438,6 +445,7 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
 - Cloud Run should run backend with `BACKGROUND_JOBS_ENABLED=false`.
 - Use Cloud Run Jobs + Scheduler for deterministic recurring workloads.
 - App listens on port `8080` in Cloud Run Docker images.
+- For each backend rollout, keep **migration-before-deploy** in place (or an equivalent release gate) so new Prisma fields are present before new code starts.
 
 ### Launch day checklist
 
