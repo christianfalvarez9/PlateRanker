@@ -2,9 +2,10 @@ import { DishCategory } from '@prisma/client';
 
 type DishScoreInput = {
   tasteScore: number;
-  portionScore: number;
-  costScore: number;
+  portionSizeScore: number;
+  valueScore: number;
   presentationScore: number;
+  uniquenessScore: number;
 };
 
 const CATEGORY_WEIGHTS: Record<DishCategory, number> = {
@@ -20,10 +21,11 @@ export function roundToTwo(value: number): number {
 
 export function calculateDishScore(input: DishScoreInput): number {
   const total =
-    input.tasteScore * 0.5 +
-    input.portionScore * 0.25 +
-    input.costScore * 0.2 +
-    input.presentationScore * 0.05;
+    input.tasteScore * 0.6 +
+    input.portionSizeScore * 0.15 +
+    input.valueScore * 0.15 +
+    input.presentationScore * 0.05 +
+    input.uniquenessScore * 0.05;
 
   return roundToTwo(total);
 }

@@ -21,9 +21,10 @@ type DishStatus = Dish['status'];
 
 type DishReviewDraft = {
   taste: number;
-  portion: number;
-  cost: number;
+  portionSize: number;
+  value: number;
   presentation: number;
+  uniqueness: number;
   reviewText: string;
 };
 
@@ -49,9 +50,10 @@ type RecipeMatch = {
 
 const createDefaultDishDraft = (): DishReviewDraft => ({
   taste: 8,
-  portion: 8,
-  cost: 8,
+  portionSize: 8,
+  value: 8,
   presentation: 8,
+  uniqueness: 8,
   reviewText: '',
 });
 
@@ -130,9 +132,10 @@ type DishDetailsResponse = {
     reviewCount: number;
     avgDishScore: number | null;
     avgTaste: number | null;
-    avgPortion: number | null;
-    avgCost: number | null;
+    avgPortionSize: number | null;
+    avgValue: number | null;
     avgPresentation: number | null;
+    avgUniqueness: number | null;
   };
   summary: string;
   photos: string[];
@@ -140,9 +143,10 @@ type DishDetailsResponse = {
     id: string;
     dishScore: number;
     tasteScore: number;
-    portionScore: number;
-    costScore: number;
+    portionSizeScore: number;
+    valueScore: number;
     presentationScore: number;
+    uniquenessScore: number;
     reviewText?: string | null;
     imageUrl?: string | null;
     createdAt: string;
@@ -527,9 +531,10 @@ export default function RestaurantProfilePage() {
             return {
               dishId,
               tasteScore: draft.taste,
-              portionScore: draft.portion,
-              costScore: draft.cost,
+              portionSizeScore: draft.portionSize,
+              valueScore: draft.value,
               presentationScore: draft.presentation,
+              uniquenessScore: draft.uniqueness,
               reviewText: draft.reviewText || undefined,
               imageUrl: dishImageUrls[dishId] || undefined,
             };
@@ -979,25 +984,25 @@ export default function RestaurantProfilePage() {
                           />
                         </label>
                         <label className="text-sm text-slate-300">
-                          Portion (1-10)
+                          Portion Size (1-10)
                           <input
                             className="app-input mt-1"
                             type="number"
                             min={1}
                             max={10}
-                            value={draft.portion}
-                            onChange={(e) => updateDishDraft(dish.id, 'portion', Number(e.target.value))}
+                            value={draft.portionSize}
+                            onChange={(e) => updateDishDraft(dish.id, 'portionSize', Number(e.target.value))}
                           />
                         </label>
                         <label className="text-sm text-slate-300">
-                          Cost (1-10)
+                          Value (1-10)
                           <input
                             className="app-input mt-1"
                             type="number"
                             min={1}
                             max={10}
-                            value={draft.cost}
-                            onChange={(e) => updateDishDraft(dish.id, 'cost', Number(e.target.value))}
+                            value={draft.value}
+                            onChange={(e) => updateDishDraft(dish.id, 'value', Number(e.target.value))}
                           />
                         </label>
                         <label className="text-sm text-slate-300">
@@ -1009,6 +1014,17 @@ export default function RestaurantProfilePage() {
                             max={10}
                             value={draft.presentation}
                             onChange={(e) => updateDishDraft(dish.id, 'presentation', Number(e.target.value))}
+                          />
+                        </label>
+                        <label className="text-sm text-slate-300">
+                          Uniqueness (1-10)
+                          <input
+                            className="app-input mt-1"
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={draft.uniqueness}
+                            onChange={(e) => updateDishDraft(dish.id, 'uniqueness', Number(e.target.value))}
                           />
                         </label>
                       </div>
@@ -1143,10 +1159,11 @@ export default function RestaurantProfilePage() {
                 {selectedDishDetails.aggregates.reviewCount}
               </p>
               <p>
-                Taste: {selectedDishDetails.aggregates.avgTaste?.toFixed(2) ?? 'N/A'} · Portion:{' '}
-                {selectedDishDetails.aggregates.avgPortion?.toFixed(2) ?? 'N/A'} · Cost:{' '}
-                {selectedDishDetails.aggregates.avgCost?.toFixed(2) ?? 'N/A'} · Presentation:{' '}
-                {selectedDishDetails.aggregates.avgPresentation?.toFixed(2) ?? 'N/A'}
+                Taste: {selectedDishDetails.aggregates.avgTaste?.toFixed(2) ?? 'N/A'} · Portion Size:{' '}
+                {selectedDishDetails.aggregates.avgPortionSize?.toFixed(2) ?? 'N/A'} · Value:{' '}
+                {selectedDishDetails.aggregates.avgValue?.toFixed(2) ?? 'N/A'} · Presentation:{' '}
+                {selectedDishDetails.aggregates.avgPresentation?.toFixed(2) ?? 'N/A'} · Uniqueness:{' '}
+                {selectedDishDetails.aggregates.avgUniqueness?.toFixed(2) ?? 'N/A'}
               </p>
               <div className="rounded-xl border border-teal-400/30 bg-teal-400/10 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-teal-200">Community summary</p>
@@ -1206,8 +1223,8 @@ export default function RestaurantProfilePage() {
                       {review.user.name} · {review.dishScore.toFixed(2)}
                     </p>
                     <p className="app-muted text-xs">
-                      Taste {review.tasteScore} · Portion {review.portionScore} · Cost {review.costScore} ·
-                      {' '}Presentation {review.presentationScore}
+                      Taste {review.tasteScore} · Portion Size {review.portionSizeScore} · Value {review.valueScore} ·
+                      {' '}Presentation {review.presentationScore} · Uniqueness {review.uniquenessScore}
                     </p>
                     {review.reviewText && <p className="mt-1">“{review.reviewText}”</p>}
                     {review.imageUrl && (

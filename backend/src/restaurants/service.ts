@@ -208,9 +208,10 @@ function summarizeDishReviews(input: {
   reviewCount: number;
   avgDishScore: number | null;
   avgTaste: number | null;
-  avgPortion: number | null;
-  avgCost: number | null;
+  avgPortionSize: number | null;
+  avgValue: number | null;
   avgPresentation: number | null;
+  avgUniqueness: number | null;
   reviewTexts: string[];
 }): string {
   if (!input.reviewCount) {
@@ -221,9 +222,10 @@ function summarizeDishReviews(input: {
 
   const criteria = [
     { label: 'taste', value: input.avgTaste ?? 0 },
-    { label: 'portion', value: input.avgPortion ?? 0 },
-    { label: 'cost', value: input.avgCost ?? 0 },
+    { label: 'portion size', value: input.avgPortionSize ?? 0 },
+    { label: 'value', value: input.avgValue ?? 0 },
     { label: 'presentation', value: input.avgPresentation ?? 0 },
+    { label: 'uniqueness', value: input.avgUniqueness ?? 0 },
   ].sort((a, b) => b.value - a.value);
 
   const strongest = criteria[0];
@@ -529,9 +531,10 @@ export async function getDishDetails(restaurantId: string, dishId: string) {
       _avg: {
         dishScore: true,
         tasteScore: true,
-        portionScore: true,
-        costScore: true,
+        portionSizeScore: true,
+        valueScore: true,
         presentationScore: true,
+        uniquenessScore: true,
       },
       _count: {
         _all: true,
@@ -545,9 +548,10 @@ export async function getDishDetails(restaurantId: string, dishId: string) {
         id: true,
         dishScore: true,
         tasteScore: true,
-        portionScore: true,
-        costScore: true,
+        portionSizeScore: true,
+        valueScore: true,
         presentationScore: true,
+        uniquenessScore: true,
         reviewText: true,
         imageUrl: true,
         createdAt: true,
@@ -603,21 +607,31 @@ export async function getDishDetails(restaurantId: string, dishId: string) {
       reviewCount: aggregates._count._all,
       avgDishScore: aggregates._avg.dishScore,
       avgTaste: aggregates._avg.tasteScore,
-      avgPortion: aggregates._avg.portionScore,
-      avgCost: aggregates._avg.costScore,
+      avgPortionSize: aggregates._avg.portionSizeScore,
+      avgValue: aggregates._avg.valueScore,
       avgPresentation: aggregates._avg.presentationScore,
+      avgUniqueness: aggregates._avg.uniquenessScore,
+      // Backward-compatible aliases during frontend rollout.
+      avgPortion: aggregates._avg.portionSizeScore,
+      avgCost: aggregates._avg.valueScore,
     },
     summary: summarizeDishReviews({
       reviewCount: aggregates._count._all,
       avgDishScore: aggregates._avg.dishScore,
       avgTaste: aggregates._avg.tasteScore,
-      avgPortion: aggregates._avg.portionScore,
-      avgCost: aggregates._avg.costScore,
+      avgPortionSize: aggregates._avg.portionSizeScore,
+      avgValue: aggregates._avg.valueScore,
       avgPresentation: aggregates._avg.presentationScore,
+      avgUniqueness: aggregates._avg.uniquenessScore,
       reviewTexts,
     }),
     photos: photoUrls,
-    recentReviews,
+    recentReviews: recentReviews.map((review) => ({
+      ...review,
+      // Backward-compatible aliases during frontend rollout.
+      portionScore: review.portionSizeScore,
+      costScore: review.valueScore,
+    })),
   };
 }
 

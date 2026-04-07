@@ -15,9 +15,10 @@ type CreateReviewInput = {
   restaurantId: string;
   dishId: string;
   tasteScore: number;
-  portionScore: number;
-  costScore: number;
+  portionSizeScore: number;
+  valueScore: number;
   presentationScore: number;
+  uniquenessScore: number;
   reviewText?: string;
   imageUrl?: string;
 };
@@ -33,9 +34,10 @@ type CreateMealReviewInput = {
   dishes: Array<{
     dishId: string;
     tasteScore: number;
-    portionScore: number;
-    costScore: number;
+    portionSizeScore: number;
+    valueScore: number;
     presentationScore: number;
+    uniquenessScore: number;
     reviewText?: string;
     imageUrl?: string;
   }>;
@@ -107,9 +109,10 @@ export async function createReview(
 
   const dishScore = calculateDishScore({
     tasteScore: input.tasteScore,
-    portionScore: input.portionScore,
-    costScore: input.costScore,
+    portionSizeScore: input.portionSizeScore,
+    valueScore: input.valueScore,
     presentationScore: input.presentationScore,
+    uniquenessScore: input.uniquenessScore,
   });
 
   const review = await prisma.review.create({
@@ -118,9 +121,10 @@ export async function createReview(
       restaurantId: input.restaurantId,
       dishId: input.dishId,
       tasteScore: input.tasteScore,
-      portionScore: input.portionScore,
-      costScore: input.costScore,
+      portionSizeScore: input.portionSizeScore,
+      valueScore: input.valueScore,
       presentationScore: input.presentationScore,
+      uniquenessScore: input.uniquenessScore,
       dishScore,
       category: dish.category,
       reviewText: normalizeOptionalText(input.reviewText),
@@ -183,9 +187,10 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
       dishId: string;
       dishScore: number;
       tasteScore: number;
-      portionScore: number;
-      costScore: number;
+      portionSizeScore: number;
+      valueScore: number;
       presentationScore: number;
+      uniquenessScore: number;
       reviewText: string | null;
       imageUrl: string | null;
       createdAt: Date;
@@ -259,9 +264,10 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
 
       const dishScore = calculateDishScore({
         tasteScore: dishInput.tasteScore,
-        portionScore: dishInput.portionScore,
-        costScore: dishInput.costScore,
+        portionSizeScore: dishInput.portionSizeScore,
+        valueScore: dishInput.valueScore,
         presentationScore: dishInput.presentationScore,
+        uniquenessScore: dishInput.uniquenessScore,
       });
 
       const review = await tx.review.create({
@@ -271,9 +277,10 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
           restaurantId: input.restaurantId,
           dishId: dishInput.dishId,
           tasteScore: dishInput.tasteScore,
-          portionScore: dishInput.portionScore,
-          costScore: dishInput.costScore,
+          portionSizeScore: dishInput.portionSizeScore,
+          valueScore: dishInput.valueScore,
           presentationScore: dishInput.presentationScore,
+          uniquenessScore: dishInput.uniquenessScore,
           dishScore,
           category: dish.category,
           reviewText: normalizeOptionalText(dishInput.reviewText),

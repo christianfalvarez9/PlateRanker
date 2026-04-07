@@ -58,8 +58,13 @@ PlateRank is a responsive full-stack web application for rating restaurants and 
 ### Dish score
 
 ```text
-dish_score = (taste * 0.50) + (portion * 0.25) + (cost * 0.20) + (presentation * 0.05)
+dish_score = (taste * 0.60) + (portion_size * 0.15) + (value * 0.15) + (presentation * 0.05) + (uniqueness * 0.05)
 ```
+
+Notes:
+- `portion_size` is stored in Prisma as `portionSizeScore` and mapped to existing DB column `portionScore`.
+- `value` is stored in Prisma as `valueScore` and mapped to existing DB column `costScore`.
+- `uniqueness` is a new persisted review column (`uniquenessScore`, default `5` for backward compatibility).
 
 ### Restaurant food rating
 
@@ -354,6 +359,7 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
    ```bash
    npm run prisma:migrate:deploy
    ```
+   For this scoring update specifically, ensure migration `20260407123000_review_value_portion_uniqueness` is applied before backend rollout to avoid runtime errors on `uniquenessScore` reads/writes.
 5. Optional: seed data only if you intentionally want demo data in production.
 6. Verify API health endpoint:
    - `GET /health` returns `{ "status": "ok" }`

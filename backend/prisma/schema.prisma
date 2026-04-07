@@ -123,9 +123,10 @@ model Review {
   restaurant        Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   dish              Dish         @relation(fields: [dishId], references: [id], onDelete: Cascade)
   tasteScore        Int
-  portionScore      Int
-  costScore         Int
+  portionSizeScore  Int          @map("portionScore")
+  valueScore        Int          @map("costScore")
   presentationScore Int
+  uniquenessScore   Int          @default(5)
   dishScore         Float
   category          DishCategory
   imageUrl          String?

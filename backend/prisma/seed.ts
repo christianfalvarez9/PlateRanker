@@ -108,9 +108,10 @@ async function main() {
       atmosphereScore: 7,
       valueScore: 8,
       tasteScore: 8,
-      portionScore: 7,
-      costScore: 8,
+      portionSizeScore: 7,
+      valueDishScore: 8,
       presentationScore: 7,
+      uniquenessScore: 6,
     },
     {
       userId: bob.id,
@@ -119,9 +120,10 @@ async function main() {
       atmosphereScore: 8,
       valueScore: 8,
       tasteScore: 9,
-      portionScore: 8,
-      costScore: 8,
+      portionSizeScore: 8,
+      valueDishScore: 8,
       presentationScore: 8,
+      uniquenessScore: 7,
     },
     {
       userId: cara.id,
@@ -130,9 +132,10 @@ async function main() {
       atmosphereScore: 7,
       valueScore: 7,
       tasteScore: 7,
-      portionScore: 8,
-      costScore: 7,
+      portionSizeScore: 8,
+      valueDishScore: 7,
       presentationScore: 7,
+      uniquenessScore: 6,
     },
     {
       userId: alice.id,
@@ -141,18 +144,20 @@ async function main() {
       atmosphereScore: 8,
       valueScore: 8,
       tasteScore: 9,
-      portionScore: 8,
-      costScore: 7,
+      portionSizeScore: 8,
+      valueDishScore: 7,
       presentationScore: 9,
+      uniquenessScore: 8,
     },
   ];
 
   for (const payload of reviewPayloads) {
     const dishScore = calculateDishScore({
       tasteScore: payload.tasteScore,
-      portionScore: payload.portionScore,
-      costScore: payload.costScore,
+      portionSizeScore: payload.portionSizeScore,
+      valueScore: payload.valueDishScore,
       presentationScore: payload.presentationScore,
+      uniquenessScore: payload.uniquenessScore,
     });
     let mealReviewId: string | null = null;
 
@@ -189,9 +194,10 @@ async function main() {
       restaurantId: restaurant.id,
       dishId: payload.dish.id,
       tasteScore: payload.tasteScore,
-      portionScore: payload.portionScore,
-      costScore: payload.costScore,
+      portionSizeScore: payload.portionSizeScore,
+      valueScore: payload.valueDishScore,
       presentationScore: payload.presentationScore,
+      uniquenessScore: payload.uniquenessScore,
       dishScore,
       category: payload.dish.category,
       ...(mealReviewId ? ({ mealReviewId } as { mealReviewId: string }) : {}),
