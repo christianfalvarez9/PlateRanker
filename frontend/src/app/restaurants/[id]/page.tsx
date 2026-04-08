@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { NavBar } from '@/components/NavBar';
 import { apiRequest } from '@/lib/api';
@@ -161,15 +161,6 @@ type EmptyResponse = Record<string, never>;
 
 type ActiveTab = 'overview' | 'menu' | 'reviews' | 'historical';
 
-type MenuSyncResponse = {
-  reason: 'FETCHED' | 'CACHE_FRESH' | 'COOLDOWN';
-  provider: string;
-  createdCount: number;
-  skippedCount: number;
-  cachedUntil?: string;
-  nextAllowedAt?: string;
-};
-
 type UploadDishPhotoResponse = {
   imageUrl: string;
   objectPath: string;
@@ -222,12 +213,12 @@ export default function RestaurantProfilePage() {
   const [dishDrafts, setDishDrafts] = useState<Record<string, DishReviewDraft>>({});
   const [selectedCourse, setSelectedCourse] = useState<DishCategory>('ENTREE');
   const [selectedDishToAdd, setSelectedDishToAdd] = useState('');
+  const [menuCourseFilter, setMenuCourseFilter] = useState<DishCategory>('ENTREE');
 
   const [newDishName, setNewDishName] = useState('');
   const [newDishCategory, setNewDishCategory] = useState<DishCategory>('ENTREE');
-  const [newDishStatus, setNewDishStatus] = useState<DishStatus>('ACTIVE');
+  const [newDishIsLimitedTime, setNewDishIsLimitedTime] = useState(false);
   const [menuActionLoading, setMenuActionLoading] = useState(false);
-  const [menuSyncLoading, setMenuSyncLoading] = useState(false);
   const [expandedDishId, setExpandedDishId] = useState<string | null>(null);
   const [dishDetailsById, setDishDetailsById] = useState<Record<string, DishDetailsResponse>>({});
   const [dishDetailsLoadingById, setDishDetailsLoadingById] = useState<Record<string, boolean>>({});
@@ -235,13 +226,15 @@ export default function RestaurantProfilePage() {
   const [dishImageUrls, setDishImageUrls] = useState<Record<string, string>>({});
   const [dishPhotoUploadStates, setDishPhotoUploadStates] = useState<Record<string, DishPhotoUploadState>>({});
   const [showDishPhotosById, setShowDishPhotosById] = useState<Record<string, boolean>>({});
-  const menuSyncInFlight = useRef(false);
-  const reviewsEmptySyncAttemptedRef = useRef(false);
 
   const viewer = getUser<{ id: string; name: string }>();
   const token = getToken();
 
   const menuItems = useMemo(() => data?.menu.activeAndSeasonal ?? [], [data]);
+  const menuItemsForSelectedCourse = useMemo(
+    () => menuItems.filter((dish) => dish.category === menuCourseFilter),
+    [menuItems, menuCourseFilter],
+  );
   const selectedDishes = useMemo(
     () => menuItems.filter((dish) => selectedDishIds.includes(dish.id)),
     [menuItems, selectedDishIds],
@@ -275,64 +268,6 @@ export default function RestaurantProfilePage() {
   useEffect(() => {
     void fetchProfile();
   }, [fetchProfile]);
-
-  useEffect(() => {
-    reviewsEmptySyncAttemptedRef.current = false;
-  }, [restaurantId]);
-
-  const syncMenuIfNeeded = useCallback(
-    async (origin: 'menu-tab' | 'reviews-tab-empty') => {
-      if (menuSyncInFlight.current) {
-        return;
-      }
-
-      menuSyncInFlight.current = true;
-      setMenuSyncLoading(true);
-
-      try {
-        const sync = await apiRequest<MenuSyncResponse>(`/restaurants/${restaurantId}/menu/sync`, {
-          method: 'POST',
-        });
-
-        if (sync.reason === 'FETCHED') {
-          if (sync.createdCount > 0) {
-            setMessage(
-              `${sync.createdCount} menu item${sync.createdCount === 1 ? '' : 's'} added automatically from ${sync.provider}.`,
-            );
-          } else if (origin === 'reviews-tab-empty') {
-            setMessage('Menu was checked automatically. Add a plate from the Menu tab if needed.');
-          }
-        }
-
-        if (sync.reason === 'COOLDOWN' && origin === 'reviews-tab-empty') {
-          setMessage('Menu sync is temporarily cooling down. Please try again shortly.');
-        }
-
-        await fetchProfile();
-      } catch (err) {
-        if (origin === 'reviews-tab-empty') {
-          setMessage(err instanceof Error ? err.message : 'Unable to auto-sync menu right now');
-        }
-      } finally {
-        setMenuSyncLoading(false);
-        menuSyncInFlight.current = false;
-      }
-    },
-    [fetchProfile, restaurantId],
-  );
-
-  useEffect(() => {
-    if (tab === 'menu') {
-      void syncMenuIfNeeded('menu-tab');
-    }
-  }, [tab, syncMenuIfNeeded]);
-
-  useEffect(() => {
-    if (tab === 'reviews' && !menuItems.length && !loading && !reviewsEmptySyncAttemptedRef.current) {
-      reviewsEmptySyncAttemptedRef.current = true;
-      void syncMenuIfNeeded('reviews-tab-empty');
-    }
-  }, [tab, menuItems.length, loading, syncMenuIfNeeded]);
 
   useEffect(() => {
     if (!menuItems.length) {
@@ -376,6 +311,22 @@ export default function RestaurantProfilePage() {
       setSelectedCourse(fallbackCourse);
     }
   }, [menuItems, selectedCourse]);
+
+  useEffect(() => {
+    if (!menuItems.length) {
+      return;
+    }
+
+    const hasDishesInSelectedCourse = menuItems.some((dish) => dish.category === menuCourseFilter);
+    if (hasDishesInSelectedCourse) {
+      return;
+    }
+
+    const fallbackCourse = DISH_COURSES.find((course) => menuItems.some((dish) => dish.category === course));
+    if (fallbackCourse) {
+      setMenuCourseFilter(fallbackCourse);
+    }
+  }, [menuItems, menuCourseFilter]);
 
   useEffect(() => {
     if (!availableDishesForSelectedCourse.length) {
@@ -634,11 +585,12 @@ export default function RestaurantProfilePage() {
           restaurantId,
           name: newDishName,
           category: newDishCategory,
-          status: newDishStatus,
+          status: newDishIsLimitedTime ? 'SEASONAL' : 'ACTIVE',
           source: 'USER',
         },
       });
       setNewDishName('');
+      setNewDishIsLimitedTime(false);
       setMessage('Plate added.');
       await fetchProfile();
     } catch (err) {
@@ -790,8 +742,6 @@ export default function RestaurantProfilePage() {
         <section className="app-card mt-6">
           <h2 className="app-section-title">Menu (Active + Seasonal)</h2>
 
-          {menuSyncLoading && <p className="app-muted mt-3 text-sm">Syncing menu automatically…</p>}
-
           <form className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4" onSubmit={addMenuItem}>
             <input
               className="app-input sm:col-span-2 lg:col-span-2"
@@ -811,23 +761,41 @@ export default function RestaurantProfilePage() {
               <option value="DESSERT">Dessert</option>
             </select>
             <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-              <select
-                className="app-select"
-                value={newDishStatus}
-                onChange={(e) => setNewDishStatus(e.target.value as DishStatus)}
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="SEASONAL">Seasonal/Limited</option>
-              </select>
-              <button className="app-btn-primary w-full whitespace-nowrap sm:w-auto" disabled={menuActionLoading || menuSyncLoading}>
+              <label className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-indigo-400"
+                  checked={newDishIsLimitedTime}
+                  onChange={(e) => setNewDishIsLimitedTime(e.target.checked)}
+                />
+                Limited time item
+              </label>
+              <button className="app-btn-primary w-full whitespace-nowrap sm:w-auto" disabled={menuActionLoading}>
                 Add
               </button>
             </div>
           </form>
 
+          <div className="mt-4 max-w-xs">
+            <label className="text-sm text-slate-300">
+              Course
+              <select
+                className="app-select mt-1"
+                value={menuCourseFilter}
+                onChange={(e) => setMenuCourseFilter(e.target.value as DishCategory)}
+              >
+                {DISH_COURSES.map((course) => (
+                  <option key={course} value={course}>
+                    {DISH_COURSE_LABEL[course]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           <ul className="mt-3 space-y-2 text-sm">
-            {data.menu.activeAndSeasonal.length ? (
-              data.menu.activeAndSeasonal.map((dish) => {
+            {menuItemsForSelectedCourse.length ? (
+              menuItemsForSelectedCourse.map((dish) => {
                 const isExpanded = expandedDishId === dish.id;
                 const dishDetails = dishDetailsById[dish.id];
                 const dishDetailsLoading = Boolean(dishDetailsLoadingById[dish.id]);
@@ -836,7 +804,7 @@ export default function RestaurantProfilePage() {
 
                 return (
                   <li key={dish.id} className="app-list-item">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-2">
                       <button
                         type="button"
                         className="text-left break-words text-slate-300 hover:text-teal-200"
@@ -844,18 +812,11 @@ export default function RestaurantProfilePage() {
                         aria-expanded={isExpanded}
                         aria-controls={`dish-details-${dish.id}`}
                       >
-                        {dish.name} · {dish.category} · {dish.status}
+                        <span className="font-medium text-slate-100">{dish.name}</span>
                         <span className="ml-2 text-xs text-slate-400">
                           Rating: {dish.avgDishScore ? dish.avgDishScore.toFixed(2) : 'N/A'} ({dish.reviewCount ?? 0})
                         </span>
                         <span className="ml-2 text-xs text-teal-300">{isExpanded ? 'Hide details' : 'View details'}</span>
-                      </button>
-
-                      <button
-                        className="app-btn-secondary w-full px-3 py-1.5 sm:w-auto"
-                        onClick={() => flagUnavailable(dish.id)}
-                      >
-                        Flag unavailable ({dish.unavailableFlagCount})
                       </button>
                     </div>
 
@@ -864,6 +825,16 @@ export default function RestaurantProfilePage() {
                         id={`dish-details-${dish.id}`}
                         className="mt-3 space-y-3 rounded-xl border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300"
                       >
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            className="app-btn-secondary px-3 py-1.5"
+                            onClick={() => flagUnavailable(dish.id)}
+                          >
+                            Flag unavailable ({dish.unavailableFlagCount})
+                          </button>
+                        </div>
+
                         {dishDetailsLoading && <p className="app-muted">Loading plate details...</p>}
                         {dishDetailsError && !dishDetailsLoading && <p className="app-error">{dishDetailsError}</p>}
 
@@ -975,9 +946,7 @@ export default function RestaurantProfilePage() {
                 );
               })
             ) : (
-              <li className="app-muted">
-                {menuSyncLoading ? 'Loading menu items…' : 'No active plates yet. Add one from the form above.'}
-              </li>
+              <li className="app-muted">No {DISH_COURSE_LABEL[menuCourseFilter].toLowerCase()} plates available.</li>
             )}
           </ul>
         </section>

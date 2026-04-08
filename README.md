@@ -21,11 +21,9 @@ PlateRank is a responsive full-stack web application for rating restaurants and 
   - `GET /restaurants/search`
   - `GET /restaurants/:id`
   - `GET /restaurants/:id/menu`
-  - `POST /restaurants/:id/menu/sync` (auto-sync provider menu with cache/cooldown)
   - `GET /restaurants/:id/reviews`
 - Dishes
   - `POST /dishes` (manual add; supports seasonal)
-  - `POST /dishes/prepopulate` (manual force refresh; still available)
   - `PATCH /dishes/:id/flag-unavailable` (auto-historical at 5 flags)
 - Reviews
   - `POST /meal-reviews` (recommended: one meal with restaurant + multiple dish ratings)
@@ -46,8 +44,6 @@ PlateRank is a responsive full-stack web application for rating restaurants and 
   - `/` search page (query + geolocation shortcut)
   - `/login`, `/register`
   - `/restaurants/[id]` profile with tabs: Overview, Menu, Reviews, Historical
-    - Menu auto-sync now runs when user opens Menu tab
-    - Reviews tab can trigger one-time auto-sync if menu is empty, so dish picker gets fed automatically
   - `/dashboard`
   - `/profile`
 
@@ -246,22 +242,8 @@ npm run seed
 
 - Google Places integration is implemented with fallback mock results when API key is missing in local development.
 - In production, `GOOGLE_PLACES_API_KEY` is required and backend startup will fail fast if it is missing.
-- Menu population does **not** use Google reviews/editorial text.
-- Menu sync uses Google Places only for place metadata (e.g., website/place reference), then attempts menu extraction from the restaurant website.
-- If upstream menu-like data is unavailable for a restaurant, the menu remains empty (users can still add dishes manually).
-- Menu sync uses DB-backed sync state cache (`MenuSyncState`) with TTL/cooldown/error tracking plus retry/throttling controls.
 - Recipe matching uses Google Custom Search + structured recipe metadata parsing to select a highest-rated similar recipe link.
 - Recipe matches are persisted per user and surfaced in the private dashboard as saved recipe links.
-
-### Menu sync environment variables
-
-```text
-MENU_CACHE_TTL_HOURS="24"
-MENU_MAX_RETRIES="3"
-MENU_MIN_REQUEST_INTERVAL_MS="250"
-MENU_MAX_CONCURRENCY="2"
-MENU_FAILURE_COOLDOWN_MINUTES="15"
-```
 
 ### Dish photo upload environment variables (Google Cloud)
 
@@ -320,11 +302,6 @@ JWT_EXPIRES_IN="7d"
 CORS_ORIGIN_ALLOWLIST="https://your-frontend-domain.com"
 
 GOOGLE_PLACES_API_KEY="<required-in-production>"
-MENU_CACHE_TTL_HOURS="24"
-MENU_MAX_RETRIES="3"
-MENU_MIN_REQUEST_INTERVAL_MS="250"
-MENU_MAX_CONCURRENCY="2"
-MENU_FAILURE_COOLDOWN_MINUTES="15"
 RECIPE_API_KEY=""
 RECIPE_SEARCH_CX=""
 BACKGROUND_JOBS_ENABLED="false"

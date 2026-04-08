@@ -372,6 +372,7 @@ export default function HomePage() {
     return cuisinePass && dishTypePass;
   });
 
+  const showPlateTypesOnSearchCards = filteredResults.length < results.length;
   const filteredVisibleResults = filteredResults.slice(0, visibleCount);
   const canLoadMoreFiltered = visibleCount < filteredResults.length;
 
@@ -391,56 +392,57 @@ export default function HomePage() {
         </p>
 
         <form className="mt-4 grid gap-3" onSubmit={onSearch}>
-          <div className="grid gap-3 md:grid-cols-2">
+          <input
+            className="app-input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="What are you looking for? (restaurant, cuisine, plate type)"
+          />
+
+          <div className="mx-auto grid w-full max-w-xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <input
-              className="app-input"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="What are you looking for? (restaurant, cuisine, plate type)"
-            />
-            <input
-              className="app-input"
+              className="app-input w-full"
               value={locationQuery}
               onChange={(e) => setLocationQuery(e.target.value)}
               placeholder="Location (city, ZIP code, or full address)"
             />
+
+            <div className="flex items-center gap-2 sm:justify-self-end">
+              <label htmlFor="radiusMiles" className="text-sm whitespace-nowrap text-slate-300">
+                Radius
+              </label>
+              <select
+                id="radiusMiles"
+                className="app-select w-[110px]"
+                value={radiusMiles}
+                onChange={(event) => {
+                  const nextRadius = Number(event.target.value);
+                  if (RADIUS_OPTIONS.includes(nextRadius as RadiusMiles)) {
+                    setRadiusMiles(nextRadius as RadiusMiles);
+                  }
+                }}
+              >
+                {RADIUS_OPTIONS.map((radiusOption) => (
+                  <option key={radiusOption} value={radiusOption}>
+                    {radiusOption} miles
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-[auto_1fr_1fr] sm:items-center">
-            <label htmlFor="radiusMiles" className="text-sm whitespace-nowrap text-slate-300">
-              Radius
-            </label>
-            <select
-              id="radiusMiles"
-              className="app-select w-full min-w-[100px]"
-              value={radiusMiles}
-              onChange={(event) => {
-                const nextRadius = Number(event.target.value);
-                if (RADIUS_OPTIONS.includes(nextRadius as RadiusMiles)) {
-                  setRadiusMiles(nextRadius as RadiusMiles);
-                }
-              }}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button className="app-btn-primary min-w-[140px]" disabled={loading}>
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+            <button
+              type="button"
+              className="app-btn-secondary min-w-[170px]"
+              onClick={searchNearMe}
+              disabled={locationLoading}
             >
-              {RADIUS_OPTIONS.map((radiusOption) => (
-                <option key={radiusOption} value={radiusOption}>
-                  {radiusOption} miles
-                </option>
-              ))}
-            </select>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button className="app-btn-primary w-full" disabled={loading}>
-                {loading ? 'Searching...' : 'Search'}
-              </button>
-              <button
-                type="button"
-                className="app-btn-secondary w-full"
-                onClick={searchNearMe}
-                disabled={locationLoading}
-              >
-                {locationLoading ? 'Locating...' : 'Use my location'}
-              </button>
-            </div>
+              {locationLoading ? 'Locating...' : 'Use my location'}
+            </button>
           </div>
         </form>
 
@@ -592,29 +594,35 @@ export default function HomePage() {
           <div className="flex flex-col gap-3">
             {allCuisineFilters.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-slate-200">Filter by cuisine</h3>
+                <h3 className="text-sm font-semibold text-slate-200">Filter by cuisine (multi-select)</h3>
+                <p className="mt-1 text-xs text-slate-400">Select one or more cuisines.</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {allCuisineFilters.map((cuisine) => {
                     const isActive = filters.cuisineFilters.includes(cuisine);
                     return (
-                      <button
+                      <label
                         key={cuisine}
-                        type="button"
-                        className={`rounded-full px-3 py-1 text-xs border ${
+                        className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-xs ${
                           isActive
                             ? 'border-cyan-300/60 bg-cyan-400/20 text-cyan-100'
                             : 'border-slate-600 bg-slate-800 text-slate-200'
                         }`}
-                        onClick={() => {
-                          setVisibleCount(RESULTS_PAGE_SIZE);
-                          setFilters((prev) => ({
-                            ...prev,
-                            cuisineFilters: toggleValue(prev.cuisineFilters, cuisine),
-                          }));
-                        }}
                       >
-                        {cuisine}
-                      </button>
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-cyan-400"
+                          checked={isActive}
+                          onChange={() => {
+                            setVisibleCount(RESULTS_PAGE_SIZE);
+                            setFilters((prev) => ({
+                              ...prev,
+                              cuisineFilters: toggleValue(prev.cuisineFilters, cuisine),
+                            }));
+                          }}
+                          aria-label={`Filter by cuisine ${cuisine}`}
+                        />
+                        <span>{cuisine}</span>
+                      </label>
                     );
                   })}
                 </div>
@@ -623,29 +631,35 @@ export default function HomePage() {
 
             {allDishTypeFilters.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-slate-200">Filter by plate type</h3>
+                <h3 className="text-sm font-semibold text-slate-200">Filter by plate type (multi-select)</h3>
+                <p className="mt-1 text-xs text-slate-400">Select one or more plate types.</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {allDishTypeFilters.map((dishType) => {
                     const isActive = filters.dishTypeFilters.includes(dishType);
                     return (
-                      <button
+                      <label
                         key={dishType}
-                        type="button"
-                        className={`rounded-full px-3 py-1 text-xs border ${
+                        className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-xs ${
                           isActive
                             ? 'border-indigo-300/60 bg-indigo-400/20 text-indigo-100'
                             : 'border-slate-600 bg-slate-800 text-slate-200'
                         }`}
-                        onClick={() => {
-                          setVisibleCount(RESULTS_PAGE_SIZE);
-                          setFilters((prev) => ({
-                            ...prev,
-                            dishTypeFilters: toggleValue(prev.dishTypeFilters, dishType),
-                          }));
-                        }}
                       >
-                        {dishType}
-                      </button>
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-indigo-400"
+                          checked={isActive}
+                          onChange={() => {
+                            setVisibleCount(RESULTS_PAGE_SIZE);
+                            setFilters((prev) => ({
+                              ...prev,
+                              dishTypeFilters: toggleValue(prev.dishTypeFilters, dishType),
+                            }));
+                          }}
+                          aria-label={`Filter by plate type ${dishType}`}
+                        />
+                        <span>{dishType}</span>
+                      </label>
                     );
                   })}
                 </div>
@@ -713,9 +727,11 @@ export default function HomePage() {
             <p className="mt-1 text-xs text-slate-300">
               Cuisine: {restaurant.cuisines?.length ? restaurant.cuisines.join(', ') : 'Not available'}
             </p>
-            <p className="mt-1 text-xs text-slate-300">
-              Plate types: {restaurant.dishTypes?.length ? restaurant.dishTypes.join(', ') : 'Not available'}
-            </p>
+            {showPlateTypesOnSearchCards && (
+              <p className="mt-1 text-xs text-slate-300">
+                Plate types: {restaurant.dishTypes?.length ? restaurant.dishTypes.join(', ') : 'Not available'}
+              </p>
+            )}
             <p className="mt-2 text-sm text-slate-300">
               Overall: {restaurant.overallRating ?? 'No ratings yet'} · Food: {restaurant.foodRating ?? 'No ratings yet'}
             </p>

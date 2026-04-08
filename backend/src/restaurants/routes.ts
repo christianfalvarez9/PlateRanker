@@ -8,7 +8,6 @@ import {
   getRestaurantProfile,
   getRestaurantReviews,
   searchRestaurants,
-  syncRestaurantMenuForViewing,
 } from './service';
 
 export const restaurantsRouter = Router();
@@ -44,14 +43,6 @@ restaurantsRouter.get(
   asyncHandler(async (req, res) => {
     const result = await getRestaurantMenu(req.params.id);
     res.json(result);
-  }),
-);
-
-restaurantsRouter.post(
-  '/:id/menu/sync',
-  asyncHandler(async (req, res) => {
-    const result = await syncRestaurantMenuForViewing(req.params.id);
-    res.status(200).json(result);
   }),
 );
 

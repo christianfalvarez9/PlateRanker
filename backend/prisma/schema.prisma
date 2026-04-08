@@ -67,7 +67,6 @@ model Restaurant {
   visits                     Visit[]
   wantedByUsers              WantToVisit[]
   savedRecipes               SavedRecipe[]
-  menuSyncState              MenuSyncState?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
@@ -151,23 +150,6 @@ model Visit {
 
   @@index([restaurantId, visitedAt])
   @@index([userId, visitedAt])
-}
-
-model MenuSyncState {
-  restaurantId    String     @id
-  restaurant      Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  provider        String
-  lastAttemptAt   DateTime?
-  lastSuccessAt   DateTime?
-  nextAllowedAt   DateTime?
-  lastPayloadHash String?
-  lastError       String?
-  failureCount    Int        @default(0)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-
-  @@index([provider])
-  @@index([nextAllowedAt])
 }
 
 model WantToVisit {

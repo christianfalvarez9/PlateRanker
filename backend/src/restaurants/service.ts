@@ -2,7 +2,6 @@ import { DishStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../utils/http';
 import { searchGooglePlaces } from '../integrations/googlePlaces';
-import { syncRestaurantMenu, type MenuSyncResult } from '../dishes/service';
 
 type SearchMatchReason = 'name' | 'cuisine' | 'dishType';
 
@@ -68,6 +67,44 @@ const CUISINE_BY_GOOGLE_TYPE: Record<string, string> = {
   hamburger_restaurant: 'Burgers',
 };
 
+const GENERIC_GOOGLE_PLACE_TYPES = new Set([
+  'restaurant',
+  'food',
+  'point_of_interest',
+  'establishment',
+  'meal_takeaway',
+  'meal_delivery',
+]);
+
+const CUISINE_TEXT_RULES: Array<{ label: string; matchers: RegExp[] }> = [
+  { label: 'Italian', matchers: [/\bitalian\b/i] },
+  { label: 'Mexican', matchers: [/\bmexican\b/i] },
+  { label: 'Thai', matchers: [/\bthai\b/i] },
+  { label: 'Chinese', matchers: [/\bchinese\b/i] },
+  { label: 'Japanese', matchers: [/\bjapanese\b/i, /\bizakaya\b/i] },
+  { label: 'Korean', matchers: [/\bkorean\b/i] },
+  { label: 'Vietnamese', matchers: [/\bvietnamese\b/i] },
+  { label: 'Indian', matchers: [/\bindian\b/i] },
+  { label: 'Spanish', matchers: [/\bspanish\b/i] },
+  { label: 'French', matchers: [/\bfrench\b/i] },
+  { label: 'Greek', matchers: [/\bgreek\b/i] },
+  { label: 'Mediterranean', matchers: [/\bmediterranean\b/i] },
+  { label: 'Turkish', matchers: [/\bturkish\b/i] },
+  { label: 'Lebanese', matchers: [/\blebanese\b/i] },
+  { label: 'American', matchers: [/\bamerican\b/i] },
+  { label: 'Barbecue', matchers: [/\bbbq\b/i, /\bbarbecue\b/i, /\bsmokehouse\b/i] },
+  { label: 'Seafood', matchers: [/\bseafood\b/i, /\boyster\b/i, /\bcrab\b/i, /\blobster\b/i] },
+  { label: 'Sushi', matchers: [/\bsushi\b/i, /\bsashimi\b/i] },
+  { label: 'Ramen', matchers: [/\bramen\b/i] },
+  { label: 'Steakhouse', matchers: [/\bsteak\s*house\b/i, /\bsteakhouse\b/i] },
+  { label: 'Pizza', matchers: [/\bpizza\b/i, /\bpizzeria\b/i] },
+  { label: 'Burgers', matchers: [/\bburgers?\b/i] },
+  { label: 'Middle Eastern', matchers: [/\bmiddle\s*eastern\b/i, /\bshawarma\b/i, /\bfalafel\b/i] },
+  { label: 'Fast Food', matchers: [/\bfast\s*food\b/i] },
+  { label: 'Vegetarian', matchers: [/\bvegetarian\b/i] },
+  { label: 'Vegan', matchers: [/\bvegan\b/i] },
+];
+
 const DISH_TYPE_RULES: Array<{ label: string; matchers: RegExp[] }> = [
   { label: 'Burgers', matchers: [/\bburger\b/i, /\bburgers\b/i, /\bpatty melt\b/i] },
   { label: 'Chicken', matchers: [/\bchicken\b/i, /\bwings?\b/i, /\btenders?\b/i] },
@@ -88,9 +125,43 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function humanizeGoogleTypeCuisine(value: string): string {
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => {
+      if (part === 'bbq') {
+        return 'BBQ';
+      }
+
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(' ');
+}
+
+function inferCuisineFromGoogleType(type: string): string | null {
+  const normalized = type.trim().toLowerCase();
+  if (!normalized || GENERIC_GOOGLE_PLACE_TYPES.has(normalized)) {
+    return null;
+  }
+
+  const mappedCuisine = CUISINE_BY_GOOGLE_TYPE[normalized];
+  if (mappedCuisine) {
+    return mappedCuisine;
+  }
+
+  if (normalized.endsWith('_restaurant')) {
+    const cuisineSlug = normalized.replace(/_restaurant$/, '');
+    const inferred = humanizeGoogleTypeCuisine(cuisineSlug);
+    return inferred || null;
+  }
+
+  return null;
+}
+
 function mapCuisinesFromGoogleTypes(types: string[]): string[] {
   const cuisines = types
-    .map((type) => CUISINE_BY_GOOGLE_TYPE[type])
+    .map((type) => inferCuisineFromGoogleType(type))
     .filter((value): value is string => Boolean(value));
 
   return uniqueStrings(cuisines);
@@ -102,6 +173,20 @@ function inferDishTypesFromDishNames(dishNames: string[]): string[] {
   for (const dishName of dishNames) {
     for (const rule of DISH_TYPE_RULES) {
       if (rule.matchers.some((matcher) => matcher.test(dishName))) {
+        detected.push(rule.label);
+      }
+    }
+  }
+
+  return uniqueStrings(detected);
+}
+
+function inferCuisinesFromText(values: string[]): string[] {
+  const detected: string[] = [];
+
+  for (const value of values) {
+    for (const rule of CUISINE_TEXT_RULES) {
+      if (rule.matchers.some((matcher) => matcher.test(value))) {
         detected.push(rule.label);
       }
     }
@@ -351,8 +436,13 @@ export async function searchRestaurants(args: {
 
   const enriched: SearchRestaurantResult[] = records
     .map(({ restaurant, place }) => {
-      const cuisines = mapCuisinesFromGoogleTypes(place.types ?? []);
-      const dishTypes = inferDishTypesFromDishNames(dishNamesByRestaurantId.get(restaurant.id) ?? []);
+      const dishNames = dishNamesByRestaurantId.get(restaurant.id) ?? [];
+      const cuisines = uniqueStrings([
+        ...mapCuisinesFromGoogleTypes(place.types ?? []),
+        ...inferCuisinesFromText([restaurant.name, ...dishNames]),
+        ...(place.placeId.startsWith('mock-') ? inferCuisinesFromText([args.query]) : []),
+      ]);
+      const dishTypes = inferDishTypesFromDishNames(dishNames);
       const matchReasons: SearchMatchReason[] = [];
 
       if (matchesTextKeywords(restaurant.name, searchKeywords)) {
@@ -945,15 +1035,3 @@ export async function getRestaurantReviews(restaurantId: string, page = 1, limit
   };
 }
 
-export async function syncRestaurantMenuForViewing(restaurantId: string) {
-  const result: MenuSyncResult = await syncRestaurantMenu(restaurantId, { forceRefresh: false });
-
-  return {
-    reason: result.reason,
-    provider: result.provider,
-    createdCount: result.createdCount,
-    skippedCount: result.skippedCount,
-    cachedUntil: result.cachedUntil,
-    nextAllowedAt: result.nextAllowedAt,
-  };
-}

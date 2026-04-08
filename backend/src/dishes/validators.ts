@@ -8,7 +8,3 @@ export const addDishSchema = z.object({
   status: z.nativeEnum(DishStatus).optional(),
   source: z.nativeEnum(DishSource).optional(),
 });
-
-export const prepopulateMenuSchema = z.object({
-  restaurantId: z.string().uuid(),
-});
