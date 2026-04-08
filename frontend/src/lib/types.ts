@@ -22,6 +22,9 @@ export type Restaurant = {
   atmosphereRating?: number | null;
   valueRating?: number | null;
   highRepeatCustomersBadge: boolean;
+  cuisines?: string[];
+  restaurantTypes?: string[];
+  dishTypes?: string[];
 };
 
 export type WantToVisitEntry = {

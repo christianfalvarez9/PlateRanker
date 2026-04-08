@@ -372,6 +372,23 @@ export default function HomePage() {
     return cuisinePass && dishTypePass;
   });
 
+  const cuisineOrTypeLabelByRestaurantId = new Map(
+    filteredResults.map((restaurant) => {
+      const cuisines = restaurant.cuisines ?? [];
+      const restaurantTypes = restaurant.restaurantTypes ?? [];
+
+      if (cuisines.length) {
+        return [restaurant.id, `Cuisine: ${cuisines.join(', ')}`] as const;
+      }
+
+      if (restaurantTypes.length) {
+        return [restaurant.id, `Restaurant type: ${restaurantTypes.join(', ')}`] as const;
+      }
+
+      return [restaurant.id, 'Cuisine: Not available'] as const;
+    }),
+  );
+
   const showPlateTypesOnSearchCards = filteredResults.length < results.length;
   const filteredVisibleResults = filteredResults.slice(0, visibleCount);
   const canLoadMoreFiltered = visibleCount < filteredResults.length;
@@ -725,7 +742,7 @@ export default function HomePage() {
             </div>
             <p className="app-muted mt-1 break-words text-sm">{restaurant.address}</p>
             <p className="mt-1 text-xs text-slate-300">
-              Cuisine: {restaurant.cuisines?.length ? restaurant.cuisines.join(', ') : 'Not available'}
+              {cuisineOrTypeLabelByRestaurantId.get(restaurant.id) ?? 'Cuisine: Not available'}
             </p>
             {showPlateTypesOnSearchCards && (
               <p className="mt-1 text-xs text-slate-300">

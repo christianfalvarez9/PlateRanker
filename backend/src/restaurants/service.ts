@@ -35,37 +35,100 @@ type DiscoveryResponse = {
 };
 
 const CUISINE_BY_GOOGLE_TYPE: Record<string, string> = {
+  african_restaurant: 'African',
+  asian_restaurant: 'Asian',
+  brazilian_restaurant: 'Brazilian',
+  cajun_restaurant: 'Cajun',
+  caribbean_restaurant: 'Caribbean',
+  ethiopian_restaurant: 'Ethiopian',
+  filipino_restaurant: 'Filipino',
+  german_restaurant: 'German',
+  halal_restaurant: 'Halal',
+  hot_pot_restaurant: 'Hot Pot',
   italian_restaurant: 'Italian',
+  latin_american_restaurant: 'Latin American',
   mexican_restaurant: 'Mexican',
   thai_restaurant: 'Thai',
   chinese_restaurant: 'Chinese',
+  dumpling_restaurant: 'Dumplings',
   japanese_restaurant: 'Japanese',
   korean_restaurant: 'Korean',
   vietnamese_restaurant: 'Vietnamese',
   indian_restaurant: 'Indian',
+  indonesian_restaurant: 'Indonesian',
+  peruvian_restaurant: 'Peruvian',
+  persian_restaurant: 'Persian',
+  portuguese_restaurant: 'Portuguese',
   spanish_restaurant: 'Spanish',
   french_restaurant: 'French',
   greek_restaurant: 'Greek',
   mediterranean_restaurant: 'Mediterranean',
+  middle_eastern_restaurant: 'Middle Eastern',
   turkish_restaurant: 'Turkish',
   lebanese_restaurant: 'Lebanese',
   american_restaurant: 'American',
   barbecue_restaurant: 'Barbecue',
   seafood_restaurant: 'Seafood',
+  soul_food_restaurant: 'Soul Food',
   sushi_restaurant: 'Sushi',
   ramen_restaurant: 'Ramen',
   steak_house: 'Steakhouse',
   pizza_restaurant: 'Pizza',
   hamburger_restaurant: 'Burgers',
+  tex_mex_restaurant: 'Tex-Mex',
+  vegan_restaurant: 'Vegan',
+  vegetarian_restaurant: 'Vegetarian',
 };
 
-const GENERIC_GOOGLE_PLACE_TYPES = new Set([
+const RESTAURANT_TYPE_BY_GOOGLE_TYPE: Record<string, string> = {
+  bakery: 'Bakery',
+  bar: 'Bar',
+  bar_and_grill: 'Bar & Grill',
+  breakfast_restaurant: 'Breakfast Spot',
+  brunch_restaurant: 'Brunch Spot',
+  buffet_restaurant: 'Buffet',
+  cafe: 'Cafe',
+  coffee_shop: 'Coffee Shop',
+  cocktail_bar: 'Cocktail Bar',
+  deli: 'Deli',
+  diner: 'Diner',
+  fast_food_restaurant: 'Fast Food',
+  fine_dining_restaurant: 'Fine Dining',
+  food_court: 'Food Court',
+  food_truck: 'Food Truck',
+  ice_cream_shop: 'Ice Cream Shop',
+  juice_shop: 'Juice Bar',
+  meal_delivery: 'Delivery',
+  meal_takeaway: 'Takeout',
+  pub: 'Pub',
+  sandwich_shop: 'Sandwich Shop',
+  tavern: 'Tavern',
+  wine_bar: 'Wine Bar',
+};
+
+const NON_DESCRIPTIVE_GOOGLE_PLACE_TYPES = new Set([
   'restaurant',
   'food',
   'point_of_interest',
   'establishment',
-  'meal_takeaway',
-  'meal_delivery',
+  'store',
+  'lodging',
+  'tourist_attraction',
+  'premise',
+  'subpremise',
+]);
+
+const NON_CUISINE_RESTAURANT_BASE_TYPES = new Set([
+  'breakfast',
+  'brunch',
+  'buffet',
+  'casual_dining',
+  'delivery',
+  'family',
+  'fast_food',
+  'fine_dining',
+  'takeout',
+  'takeaway',
 ]);
 
 const CUISINE_TEXT_RULES: Array<{ label: string; matchers: RegExp[] }> = [
@@ -117,7 +180,7 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function humanizeGoogleTypeCuisine(value: string): string {
+function humanizeGoogleTypeLabel(value: string): string {
   return value
     .split('_')
     .filter(Boolean)
@@ -131,9 +194,23 @@ function humanizeGoogleTypeCuisine(value: string): string {
     .join(' ');
 }
 
-function inferCuisineFromGoogleType(type: string): string | null {
-  const normalized = type.trim().toLowerCase();
-  if (!normalized || GENERIC_GOOGLE_PLACE_TYPES.has(normalized)) {
+function normalizeGooglePlaceType(type: string): string {
+  return type.trim().toLowerCase();
+}
+
+function stripRestaurantSuffix(type: string): string | null {
+  const restaurantSuffix = '_restaurant';
+  if (!type.endsWith(restaurantSuffix)) {
+    return null;
+  }
+
+  const baseType = type.slice(0, -restaurantSuffix.length).trim();
+  return baseType || null;
+}
+
+function cuisineLabelFromGoogleType(type: string): string | null {
+  const normalized = normalizeGooglePlaceType(type);
+  if (!normalized || NON_DESCRIPTIVE_GOOGLE_PLACE_TYPES.has(normalized)) {
     return null;
   }
 
@@ -142,21 +219,63 @@ function inferCuisineFromGoogleType(type: string): string | null {
     return mappedCuisine;
   }
 
-  if (normalized.endsWith('_restaurant')) {
-    const cuisineSlug = normalized.replace(/_restaurant$/, '');
-    const inferred = humanizeGoogleTypeCuisine(cuisineSlug);
-    return inferred || null;
+  if (RESTAURANT_TYPE_BY_GOOGLE_TYPE[normalized]) {
+    return null;
   }
 
-  return null;
+  const restaurantBaseType = stripRestaurantSuffix(normalized);
+  if (!restaurantBaseType) {
+    return null;
+  }
+
+  if (NON_CUISINE_RESTAURANT_BASE_TYPES.has(restaurantBaseType)) {
+    return null;
+  }
+
+  return humanizeGoogleTypeLabel(restaurantBaseType);
+}
+
+function restaurantTypeLabelFromGoogleType(type: string): string | null {
+  const normalized = normalizeGooglePlaceType(type);
+  if (!normalized || NON_DESCRIPTIVE_GOOGLE_PLACE_TYPES.has(normalized)) {
+    return null;
+  }
+
+  const mappedRestaurantType = RESTAURANT_TYPE_BY_GOOGLE_TYPE[normalized];
+  if (mappedRestaurantType) {
+    return mappedRestaurantType;
+  }
+
+  const restaurantBaseType = stripRestaurantSuffix(normalized);
+  if (!restaurantBaseType || !NON_CUISINE_RESTAURANT_BASE_TYPES.has(restaurantBaseType)) {
+    return null;
+  }
+
+  return humanizeGoogleTypeLabel(restaurantBaseType);
 }
 
 function mapCuisinesFromGoogleTypes(types: string[]): string[] {
   const cuisines = types
-    .map((type) => inferCuisineFromGoogleType(type))
+    .map((type) => cuisineLabelFromGoogleType(type))
     .filter((value): value is string => Boolean(value));
 
   return uniqueStrings(cuisines);
+}
+
+function mapRestaurantTypesFromGoogleTypes(types: string[]): string[] {
+  const restaurantTypes = types
+    .map((type) => restaurantTypeLabelFromGoogleType(type))
+    .filter((value): value is string => Boolean(value));
+
+  return uniqueStrings(restaurantTypes);
+}
+
+function mapDishTypesFromGoogleTypes(types: string[]): string[] {
+  const dishTypes = types
+    .map((type) => cuisineLabelFromGoogleType(type))
+    .filter((value): value is string => Boolean(value));
+
+  return uniqueStrings(dishTypes);
 }
 
 function inferDishTypesFromDishNames(dishNames: string[]): string[] {
@@ -439,7 +558,11 @@ export async function searchRestaurants(args: {
         ...inferCuisinesFromText([restaurant.name, ...dishNames]),
         ...(place.placeId.startsWith('mock-') ? inferCuisinesFromText([args.query]) : []),
       ]);
-      const dishTypes = inferDishTypesFromDishNames(dishNames);
+      const restaurantTypes = mapRestaurantTypesFromGoogleTypes(place.types ?? []);
+      const dishTypes = uniqueStrings([
+        ...mapDishTypesFromGoogleTypes(place.types ?? []),
+        ...inferDishTypesFromDishNames(dishNames),
+      ]);
       let matchReasonCount = 0;
 
       if (matchesTextKeywords(restaurant.name, searchKeywords)) {
@@ -450,12 +573,19 @@ export async function searchRestaurants(args: {
         matchReasonCount += 1;
       }
 
+      if (matchesAnyKeywordSet(restaurantTypes, searchKeywords)) {
+        matchReasonCount += 1;
+      }
+
       if (matchesAnyKeywordSet(dishTypes, searchKeywords)) {
         matchReasonCount += 1;
       }
 
       return {
         restaurant,
+        cuisines,
+        restaurantTypes,
+        dishTypes,
         matchReasonCount,
       };
     })
@@ -486,7 +616,12 @@ export async function searchRestaurants(args: {
 
       return a.restaurant.name.localeCompare(b.restaurant.name);
     })
-    .map((record) => record.restaurant);
+    .map((record) => ({
+      ...record.restaurant,
+      cuisines: record.cuisines,
+      restaurantTypes: record.restaurantTypes,
+      dishTypes: record.dishTypes,
+    }));
 }
 
 export async function getLocationDiscovery(args: { location: string; radiusMiles?: number }): Promise<DiscoveryResponse> {
