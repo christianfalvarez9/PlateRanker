@@ -74,10 +74,24 @@ function isPostalCodeQuery(query: string): boolean {
   return /^\d{5}(?:-\d{4})?$/.test(trimmed);
 }
 
-function buildRestaurantSearchQuery(query: string): string {
+function buildRestaurantSearchQuery(query: string, location?: string): string {
   const trimmed = query.trim();
+  const trimmedLocation = location?.trim();
+
+  const appendLocation = (value: string): string => {
+    if (!trimmedLocation) {
+      return value;
+    }
+
+    if (value.toLowerCase().includes(trimmedLocation.toLowerCase())) {
+      return value;
+    }
+
+    return `${value} in ${trimmedLocation}`;
+  };
+
   if (!trimmed) {
-    return 'restaurants';
+    return appendLocation('restaurants');
   }
 
   if (isPostalCodeQuery(trimmed)) {
@@ -85,10 +99,40 @@ function buildRestaurantSearchQuery(query: string): string {
   }
 
   if (/\brestaurants?\b/i.test(trimmed)) {
-    return trimmed;
+    return appendLocation(trimmed);
   }
 
-  return `${trimmed} restaurants`;
+  return appendLocation(`${trimmed} restaurants`);
+}
+
+function queryLooksLikeLocation(query: string): boolean {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (isPostalCodeQuery(trimmed)) {
+    return true;
+  }
+
+  if (/\d{1,5}\s+\w+/.test(trimmed)) {
+    return true;
+  }
+
+  return trimmed.includes(',');
+}
+
+function buildNearbyKeyword(query: string): string {
+  const trimmed = query.trim();
+  if (!trimmed || isPostalCodeQuery(trimmed)) {
+    return 'restaurant';
+  }
+
+  if (/^restaurants?$/i.test(trimmed)) {
+    return 'restaurant';
+  }
+
+  return trimmed;
 }
 
 function assertGooglePlacesStatus(
@@ -304,11 +348,12 @@ async function nearbySearchPlaces(args: {
   lat: number;
   lng: number;
   radiusMeters: number;
+  keyword: string;
 }): Promise<GooglePlaceTextSearchItem[]> {
   const nearbyParams = new URLSearchParams({
     location: `${args.lat},${args.lng}`,
     radius: String(Math.min(args.radiusMeters, MAX_GOOGLE_RADIUS_METERS)),
-    keyword: 'restaurant',
+    keyword: args.keyword,
     key: env.googlePlacesApiKey,
   });
 
@@ -368,11 +413,12 @@ function fallbackMockResults(query: string): PlaceResult[] {
 
 export async function searchGooglePlaces(args: {
   query: string;
+  location?: string;
   lat?: number;
   lng?: number;
   radiusMiles?: number;
 }): Promise<PlaceResult[]> {
-  const { query, lat, lng } = args;
+  const { query, location, lat, lng } = args;
   const normalizedRadiusMiles = normalizeRadiusMiles(args.radiusMiles);
   const radiusMeters = milesToMeters(normalizedRadiusMiles);
 
@@ -380,11 +426,17 @@ export async function searchGooglePlaces(args: {
     return fallbackMockResults(query);
   }
 
-  const searchQuery = buildRestaurantSearchQuery(query);
+  const searchQuery = buildRestaurantSearchQuery(query, location);
+  const nearbyKeyword = buildNearbyKeyword(query);
+  const geocodeTarget = location?.trim() || (queryLooksLikeLocation(query) ? query.trim() : undefined);
   let places: GooglePlaceTextSearchItem[] = [];
 
   const resolvedLocation =
-    lat !== undefined && lng !== undefined ? { lat, lng } : await geocodeQueryToLatLng(query);
+    lat !== undefined && lng !== undefined
+      ? { lat, lng }
+      : geocodeTarget
+        ? await geocodeQueryToLatLng(geocodeTarget)
+        : null;
 
   if (resolvedLocation) {
     const centers = buildCoverageCenters(resolvedLocation.lat, resolvedLocation.lng, radiusMeters);
@@ -394,6 +446,7 @@ export async function searchGooglePlaces(args: {
           lat: center.lat,
           lng: center.lng,
           radiusMeters: center.radiusMeters,
+          keyword: nearbyKeyword,
         }),
       ),
     );
@@ -419,7 +472,7 @@ export async function searchGooglePlaces(args: {
   } else {
     places = await textSearchPlaces({ query: searchQuery });
 
-    if (!places.length && isPostalCodeQuery(query)) {
+    if (!places.length && isPostalCodeQuery(query) && !location?.trim()) {
       places = await textSearchPlaces({ query: query.trim() });
     }
   }

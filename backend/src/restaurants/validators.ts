@@ -12,48 +12,9 @@ const radiusMilesSchema = z
 
 export const searchRestaurantsSchema = z.object({
   query: z.string().trim().min(2).max(120),
+  location: z.string().trim().min(2).max(120).optional(),
   lat: z.coerce.number().optional(),
   lng: z.coerce.number().optional(),
-  cuisineFilters: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((value) => {
-      if (!value) {
-        return [];
-      }
-
-      if (Array.isArray(value)) {
-        return value
-          .flatMap((item) => item.split(','))
-          .map((item) => item.trim())
-          .filter(Boolean);
-      }
-
-      return value
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }),
-  dishTypeFilters: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((value) => {
-      if (!value) {
-        return [];
-      }
-
-      if (Array.isArray(value)) {
-        return value
-          .flatMap((item) => item.split(','))
-          .map((item) => item.trim())
-          .filter(Boolean);
-      }
-
-      return value
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }),
   radiusMiles: radiusMilesSchema,
 });
 

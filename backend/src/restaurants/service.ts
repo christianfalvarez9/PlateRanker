@@ -3,14 +3,6 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../utils/http';
 import { searchGooglePlaces } from '../integrations/googlePlaces';
 
-type SearchMatchReason = 'name' | 'cuisine' | 'dishType';
-
-export type SearchRestaurantResult = Awaited<ReturnType<typeof prisma.restaurant.upsert>> & {
-  cuisines: string[];
-  dishTypes: string[];
-  matchReasons: SearchMatchReason[];
-};
-
 type PlaceSearchResult = Awaited<ReturnType<typeof searchGooglePlaces>>[number];
 
 type DiscoveryPlateItem = {
@@ -225,22 +217,32 @@ function matchesTextKeywords(value: string, keywords: string[]): boolean {
   return keywords.some((keyword) => textIncludes(value, keyword));
 }
 
-function toStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .flatMap((item) => (typeof item === 'string' ? item.split(',') : []))
-      .map((item) => item.trim())
-      .filter(Boolean);
+const BROAD_RESTAURANT_SEARCH_TERMS = new Set([
+  'restaurant',
+  'restaurants',
+  'food',
+  'dining',
+  'near',
+  'nearby',
+  'me',
+  'local',
+]);
+
+function splitToWords(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function isBroadRestaurantQuery(query: string): boolean {
+  const words = splitToWords(query).filter((word) => word.length >= 2);
+  if (!words.length) {
+    return true;
   }
 
-  if (typeof value === 'string') {
-    return value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  return [];
+  return words.every((word) => BROAD_RESTAURANT_SEARCH_TERMS.has(word));
 }
 
 function roundToTwo(value: number): number {
@@ -397,18 +399,13 @@ function summarizeDishReviews(input: {
 
 export async function searchRestaurants(args: {
   query: string;
+  location?: string;
   lat?: number;
   lng?: number;
   radiusMiles?: number;
-  cuisineFilters?: string[];
-  dishTypeFilters?: string[];
 }) {
-  const normalizedQuery = args.query.trim().toLowerCase();
   const searchKeywords = buildSearchKeywords(args.query);
-  const cuisineFilters = uniqueStrings((args.cuisineFilters ?? []).map((value) => value.trim()).filter(Boolean));
-  const dishTypeFilters = uniqueStrings((args.dishTypeFilters ?? []).map((value) => value.trim()).filter(Boolean));
-  const hasResolvedGeoInput = typeof args.lat === 'number' && typeof args.lng === 'number';
-  const looksLikePostalCode = /^\d{5}(?:-\d{4})?$/.test(normalizedQuery);
+  const broadQuery = isBroadRestaurantQuery(args.query);
 
   const places = await searchGooglePlaces(args);
   const records = await upsertRestaurantsFromPlaces(places);
@@ -434,7 +431,7 @@ export async function searchRestaurants(args: {
     dishNamesByRestaurantId.set(dish.restaurantId, existing);
   }
 
-  const enriched: SearchRestaurantResult[] = records
+  const rankedRecords = records
     .map(({ restaurant, place }) => {
       const dishNames = dishNamesByRestaurantId.get(restaurant.id) ?? [];
       const cuisines = uniqueStrings([
@@ -443,72 +440,60 @@ export async function searchRestaurants(args: {
         ...(place.placeId.startsWith('mock-') ? inferCuisinesFromText([args.query]) : []),
       ]);
       const dishTypes = inferDishTypesFromDishNames(dishNames);
-      const matchReasons: SearchMatchReason[] = [];
+      let matchReasonCount = 0;
 
       if (matchesTextKeywords(restaurant.name, searchKeywords)) {
-        matchReasons.push('name');
+        matchReasonCount += 1;
       }
 
       if (matchesAnyKeywordSet(cuisines, searchKeywords)) {
-        matchReasons.push('cuisine');
+        matchReasonCount += 1;
       }
 
       if (matchesAnyKeywordSet(dishTypes, searchKeywords)) {
-        matchReasons.push('dishType');
+        matchReasonCount += 1;
       }
 
       return {
-        ...restaurant,
-        cuisines,
-        dishTypes,
-        matchReasons: uniqueStrings(matchReasons) as SearchMatchReason[],
+        restaurant,
+        matchReasonCount,
       };
     })
     .filter((record) => {
-      if (!searchKeywords.length) {
+      if (!searchKeywords.length || broadQuery) {
         return true;
       }
 
-      const addressMatchesQuery = matchesTextKeywords(record.address, searchKeywords);
-      if (hasResolvedGeoInput || looksLikePostalCode || addressMatchesQuery) {
-        return true;
-      }
-
-      return record.matchReasons.length > 0;
+      return record.matchReasonCount > 0;
     });
 
-  const cuisineFiltered = cuisineFilters.length
-    ? enriched.filter((record) => cuisineFilters.some((filterValue) => matchesAnyKeyword(record.cuisines, filterValue)))
-    : enriched;
+  return [...rankedRecords]
+    .sort((a, b) => {
+      const reasonDiff = b.matchReasonCount - a.matchReasonCount;
+      if (reasonDiff !== 0) {
+        return reasonDiff;
+      }
 
-  const fullyFiltered = dishTypeFilters.length
-    ? cuisineFiltered.filter((record) => dishTypeFilters.some((filterValue) => matchesAnyKeyword(record.dishTypes, filterValue)))
-    : cuisineFiltered;
+      const overallDiff = ratingSortValue(b.restaurant.overallRating) - ratingSortValue(a.restaurant.overallRating);
+      if (overallDiff !== 0) {
+        return overallDiff;
+      }
 
-  return [...fullyFiltered].sort((a, b) => {
-    const reasonDiff = b.matchReasons.length - a.matchReasons.length;
-    if (reasonDiff !== 0) {
-      return reasonDiff;
-    }
+      const foodDiff = ratingSortValue(b.restaurant.foodRating) - ratingSortValue(a.restaurant.foodRating);
+      if (foodDiff !== 0) {
+        return foodDiff;
+      }
 
-    const overallDiff = ratingSortValue(b.overallRating) - ratingSortValue(a.overallRating);
-    if (overallDiff !== 0) {
-      return overallDiff;
-    }
-
-    const foodDiff = ratingSortValue(b.foodRating) - ratingSortValue(a.foodRating);
-    if (foodDiff !== 0) {
-      return foodDiff;
-    }
-
-    return a.name.localeCompare(b.name);
-  });
+      return a.restaurant.name.localeCompare(b.restaurant.name);
+    })
+    .map((record) => record.restaurant);
 }
 
 export async function getLocationDiscovery(args: { location: string; radiusMiles?: number }): Promise<DiscoveryResponse> {
   const location = args.location.trim();
   const places = await searchGooglePlaces({
-    query: location,
+    query: 'restaurants',
+    location,
     radiusMiles: args.radiusMiles,
   });
   const records = await upsertRestaurantsFromPlaces(places);
@@ -728,16 +713,6 @@ export async function getLocationDiscovery(args: { location: string; radiusMiles
             reason: 'OK',
             items: trendingTop,
           },
-  };
-}
-
-export function parseSearchFilters(input: {
-  cuisineFilters?: unknown;
-  dishTypeFilters?: unknown;
-}) {
-  return {
-    cuisineFilters: toStringArray(input.cuisineFilters),
-    dishTypeFilters: toStringArray(input.dishTypeFilters),
   };
 }
 

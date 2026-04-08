@@ -298,7 +298,7 @@ export default function HomePage() {
     setError(null);
 
     try {
-      setFilters({
+       setFilters({
         cuisineFilters: [],
         dishTypeFilters: [],
       });
