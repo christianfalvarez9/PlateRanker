@@ -387,26 +387,34 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
    - `roles/storage.objectCreator` on your dish-photo bucket
 
 6. **Deploy backend**
-   - Use `cloudbuild.backend.yaml` and customize substitutions (`_CLOUDSQL_INSTANCE`, `_DISH_PHOTO_BUCKET`, `_CORS_ALLOWLIST`, service account).
+   - `cloudbuild.backend.yaml` now requires explicit substitutions in Cloud Shell.
+   - Recommended: use a release tag once and reuse it across backend/frontend/jobs.
    - Backend Cloud Build now includes a migration gate:
      1) deploy/update Cloud Run Job `${_MIGRATION_JOB}` using backend image,
      2) execute `npm run prisma:migrate:deploy -w backend` via that job,
      3) only then deploy Cloud Run service revision.
    - This ensures schema changes (e.g., `User.defaultSearchLocation`) are applied before serving traffic.
    ```bash
-   gcloud builds submit --config cloudbuild.backend.yaml
+   IMAGE_TAG="$(date +%Y%m%d-%H%M%S)"
+
+   gcloud builds submit --config cloudbuild.backend.yaml \
+     --substitutions=_IMAGE_TAG="${IMAGE_TAG}",_CLOUDSQL_INSTANCE="PROJECT_ID:us-central1:platerank-sql",_CORS_ALLOWLIST="https://app.example.com",_DISH_PHOTO_BUCKET="your-dish-photo-bucket"
    ```
 
 7. **Deploy frontend**
-   - Set `_NEXT_PUBLIC_API_BASE_URL` to your backend Cloud Run URL in `cloudbuild.frontend.yaml`.
+   - Read backend URL after backend deploy, then pass it into frontend build.
    ```bash
-   gcloud builds submit --config cloudbuild.frontend.yaml
+   BACKEND_URL="$(gcloud run services describe platerank-api --region=us-central1 --format='value(status.url)')"
+
+   gcloud builds submit --config cloudbuild.frontend.yaml \
+     --substitutions=_IMAGE_TAG="${IMAGE_TAG}",_NEXT_PUBLIC_API_BASE_URL="${BACKEND_URL}"
    ```
 
 8. **Set up repeat-badge scheduled processing** (recommended over in-process cron on Cloud Run)
    - Deploy the Cloud Run Job definition:
    ```bash
-   gcloud builds submit --config cloudbuild.jobs.yaml
+   gcloud builds submit --config cloudbuild.jobs.yaml \
+     --substitutions=_IMAGE_TAG="${IMAGE_TAG}",_CLOUDSQL_INSTANCE="PROJECT_ID:us-central1:platerank-sql",_DISH_PHOTO_BUCKET="your-dish-photo-bucket"
    ```
    - Create Cloud Scheduler trigger (daily at 3 AM UTC example):
    ```bash
@@ -416,6 +424,9 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
      --http-method=POST \
      --oauth-service-account-email=platerank-runner@PROJECT_ID.iam.gserviceaccount.com
    ```
+
+> Cloud Build files intentionally use `REQUIRED_*` defaults for critical substitutions.
+> If you forget to pass one in Cloud Shell, build validation fails early with a clear error.
 
 ### Cloud Run notes
 

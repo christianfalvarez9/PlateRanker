@@ -4,9 +4,25 @@ substitutions:
   _REPOSITORY: platerank
   _AR_HOST: us-central1-docker.pkg.dev
   _RUN_SA: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
-  _NEXT_PUBLIC_API_BASE_URL: https://platerank-api-xxxxx-uc.a.run.app
+  _IMAGE_TAG: REQUIRED_IMAGE_TAG
+  _NEXT_PUBLIC_API_BASE_URL: REQUIRED_NEXT_PUBLIC_API_BASE_URL
 
 steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Validate frontend substitutions
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        if [[ "${_IMAGE_TAG}" == "REQUIRED_IMAGE_TAG" ]]; then
+          echo "Missing required substitution: _IMAGE_TAG"
+          exit 1
+        fi
+        if [[ "${_NEXT_PUBLIC_API_BASE_URL}" == "REQUIRED_NEXT_PUBLIC_API_BASE_URL" ]]; then
+          echo "Missing required substitution: _NEXT_PUBLIC_API_BASE_URL"
+          exit 1
+        fi
+
   - name: gcr.io/cloud-builders/docker
     id: Build frontend image
     args:
@@ -14,7 +30,7 @@ steps:
       - -f
       - frontend/Dockerfile
       - -t
-      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --build-arg
       - NEXT_PUBLIC_API_BASE_URL=${_NEXT_PUBLIC_API_BASE_URL}
       - .
@@ -23,7 +39,7 @@ steps:
     id: Push frontend image
     args:
       - push
-      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: Deploy frontend to Cloud Run
@@ -35,7 +51,7 @@ steps:
       - --project=${PROJECT_ID}
       - --region=${_REGION}
       - --platform=managed
-      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --service-account=${_RUN_SA}
       - --allow-unauthenticated
       - --port=8080
@@ -44,4 +60,4 @@ steps:
       - --set-env-vars=PORT=8080
 
 images:
-  - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+  - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}

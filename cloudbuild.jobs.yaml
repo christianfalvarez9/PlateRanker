@@ -1,18 +1,40 @@
 substitutions:
   _REGION: us-central1
+  _REPOSITORY: platerank
+  _SERVICE: platerank-api
   _JOB_NAME: platerank-repeat-badge
   _SERVICE_ACCOUNT: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
-  _RUNNER_IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/platerank/platerank-api:latest
-  _CLOUDSQL_INSTANCE: "my-project:us-central1:platerank-sql"
+  _AR_HOST: us-central1-docker.pkg.dev
+  _IMAGE_TAG: REQUIRED_IMAGE_TAG
+  _CLOUDSQL_INSTANCE: REQUIRED_CLOUDSQL_INSTANCE
   _DATABASE_URL_SECRET: DATABASE_URL
   _JWT_SECRET_NAME: JWT_SECRET
   _GOOGLE_PLACES_API_KEY_SECRET: GOOGLE_PLACES_API_KEY
   _RECIPE_API_KEY_SECRET: RECIPE_API_KEY
   _RECIPE_SEARCH_CX_SECRET: RECIPE_SEARCH_CX
-  _DISH_PHOTO_BUCKET: ""
+  _DISH_PHOTO_BUCKET: REQUIRED_DISH_PHOTO_BUCKET
   _DISH_PHOTO_PUBLIC_BASE_URL: ""
 
 steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Validate jobs substitutions
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        if [[ "${_IMAGE_TAG}" == "REQUIRED_IMAGE_TAG" ]]; then
+          echo "Missing required substitution: _IMAGE_TAG"
+          exit 1
+        fi
+        if [[ "${_CLOUDSQL_INSTANCE}" == "REQUIRED_CLOUDSQL_INSTANCE" ]]; then
+          echo "Missing required substitution: _CLOUDSQL_INSTANCE"
+          exit 1
+        fi
+        if [[ "${_DISH_PHOTO_BUCKET}" == "REQUIRED_DISH_PHOTO_BUCKET" ]]; then
+          echo "Missing required substitution: _DISH_PHOTO_BUCKET"
+          exit 1
+        fi
+
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: Deploy repeat-badge Cloud Run Job
     entrypoint: gcloud
@@ -23,7 +45,7 @@ steps:
       - ${_JOB_NAME}
       - --project=${PROJECT_ID}
       - --region=${_REGION}
-      - --image=${_RUNNER_IMAGE}
+      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --service-account=${_SERVICE_ACCOUNT}
       - --task-timeout=1800s
       - --max-retries=1

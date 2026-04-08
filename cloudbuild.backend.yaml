@@ -5,17 +5,41 @@ substitutions:
   _MIGRATION_JOB: platerank-db-migrate
   _AR_HOST: us-central1-docker.pkg.dev
   _RUN_SA: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
-  _CLOUDSQL_INSTANCE: "my-project:us-central1:platerank-sql"
-  _CORS_ALLOWLIST: "https://your-frontend-domain.com"
+  _IMAGE_TAG: REQUIRED_IMAGE_TAG
+  _CLOUDSQL_INSTANCE: REQUIRED_CLOUDSQL_INSTANCE
+  _CORS_ALLOWLIST: REQUIRED_CORS_ALLOWLIST
   _GOOGLE_PLACES_API_KEY_SECRET: GOOGLE_PLACES_API_KEY
   _JWT_SECRET_NAME: JWT_SECRET
   _DATABASE_URL_SECRET: DATABASE_URL
-  _DISH_PHOTO_BUCKET: ""
+  _DISH_PHOTO_BUCKET: REQUIRED_DISH_PHOTO_BUCKET
   _DISH_PHOTO_PUBLIC_BASE_URL: ""
   _RECIPE_API_KEY_SECRET: RECIPE_API_KEY
   _RECIPE_SEARCH_CX_SECRET: RECIPE_SEARCH_CX
 
 steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Validate backend substitutions
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        if [[ "${_IMAGE_TAG}" == "REQUIRED_IMAGE_TAG" ]]; then
+          echo "Missing required substitution: _IMAGE_TAG"
+          exit 1
+        fi
+        if [[ "${_CLOUDSQL_INSTANCE}" == "REQUIRED_CLOUDSQL_INSTANCE" ]]; then
+          echo "Missing required substitution: _CLOUDSQL_INSTANCE"
+          exit 1
+        fi
+        if [[ "${_CORS_ALLOWLIST}" == "REQUIRED_CORS_ALLOWLIST" ]]; then
+          echo "Missing required substitution: _CORS_ALLOWLIST"
+          exit 1
+        fi
+        if [[ "${_DISH_PHOTO_BUCKET}" == "REQUIRED_DISH_PHOTO_BUCKET" ]]; then
+          echo "Missing required substitution: _DISH_PHOTO_BUCKET"
+          exit 1
+        fi
+
   - name: gcr.io/cloud-builders/docker
     id: Build backend image
     args:
@@ -23,14 +47,14 @@ steps:
       - -f
       - Dockerfile
       - -t
-      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - .
 
   - name: gcr.io/cloud-builders/docker
     id: Push backend image
     args:
       - push
-      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: Deploy migration job
@@ -42,7 +66,7 @@ steps:
       - ${_MIGRATION_JOB}
       - --project=${PROJECT_ID}
       - --region=${_REGION}
-      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --service-account=${_RUN_SA}
       - --task-timeout=900s
       - --max-retries=0
@@ -74,7 +98,7 @@ steps:
       - --project=${PROJECT_ID}
       - --region=${_REGION}
       - --platform=managed
-      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --service-account=${_RUN_SA}
       - --allow-unauthenticated
       - --port=8080
@@ -95,4 +119,4 @@ steps:
       - --set-secrets=RECIPE_SEARCH_CX=${_RECIPE_SEARCH_CX_SECRET}:latest
 
 images:
-  - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${SHORT_SHA}
+  - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
