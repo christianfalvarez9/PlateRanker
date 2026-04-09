@@ -61,6 +61,7 @@ type RadiusMiles = (typeof RADIUS_OPTIONS)[number];
 
 type SearchContext = {
   query: string;
+  location?: string;
   lat?: number;
   lng?: number;
   mode: 'typed' | 'location';
@@ -190,6 +191,10 @@ export default function HomePage() {
       radiusMiles: String(radiusMiles),
     });
 
+    if (context.location?.trim()) {
+      params.set('location', context.location.trim());
+    }
+
     if (context.lat !== undefined && context.lng !== undefined) {
       params.set('lat', String(context.lat));
       params.set('lng', String(context.lng));
@@ -291,8 +296,15 @@ export default function HomePage() {
       return;
     }
 
-    const composedQuery =
-      trimmedQuery && trimmedLocation ? `${trimmedQuery} ${trimmedLocation}` : trimmedQuery || trimmedLocation;
+    let searchQuery = trimmedQuery;
+    let searchLocation: string | undefined;
+
+    if (trimmedQuery && trimmedLocation) {
+      searchLocation = trimmedLocation;
+    } else if (!trimmedQuery && trimmedLocation) {
+      searchQuery = 'restaurants';
+      searchLocation = trimmedLocation;
+    }
 
     setLoading(true);
     setError(null);
@@ -303,7 +315,8 @@ export default function HomePage() {
         dishTypeFilters: [],
       });
       await runSearch({
-        query: composedQuery,
+        query: searchQuery,
+        location: searchLocation,
         mode: 'typed',
       });
     } catch (err) {
@@ -330,7 +343,7 @@ export default function HomePage() {
             dishTypeFilters: [],
           });
           await runSearch({
-            query: query.trim() || locationQuery.trim() || 'nearby restaurants',
+            query: query.trim() || 'nearby restaurants',
             lat: position.coords.latitude,
             lng: position.coords.longitude,
             mode: 'location',

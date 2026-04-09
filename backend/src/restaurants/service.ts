@@ -347,6 +347,31 @@ const BROAD_RESTAURANT_SEARCH_TERMS = new Set([
   'local',
 ]);
 
+function isPostalCodeLike(value: string): boolean {
+  return /^\d{5}(?:-\d{4})?$/.test(value.trim());
+}
+
+function queryLooksLikeLocation(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (isPostalCodeLike(trimmed)) {
+    return true;
+  }
+
+  if (/\d{1,6}\s+\w+/.test(trimmed)) {
+    return true;
+  }
+
+  if (trimmed.includes(',')) {
+    return true;
+  }
+
+  return false;
+}
+
 function splitToWords(value: string): string[] {
   return value
     .toLowerCase()
@@ -524,7 +549,7 @@ export async function searchRestaurants(args: {
   radiusMiles?: number;
 }) {
   const searchKeywords = buildSearchKeywords(args.query);
-  const broadQuery = isBroadRestaurantQuery(args.query);
+  const broadQuery = isBroadRestaurantQuery(args.query) || queryLooksLikeLocation(args.query);
 
   const places = await searchGooglePlaces(args);
   const records = await upsertRestaurantsFromPlaces(places);

@@ -43,6 +43,8 @@ const DISH_COURSE_LABEL: Record<DishCategory, string> = {
   DESSERT: 'Dessert',
 };
 
+const ADD_NEW_DISH_OPTION_VALUE = '__add_new_dish__';
+
 type RecipeMatch = {
   title: string;
   link: string;
@@ -218,6 +220,9 @@ export default function RestaurantProfilePage() {
   const [newDishName, setNewDishName] = useState('');
   const [newDishCategory, setNewDishCategory] = useState<DishCategory>('ENTREE');
   const [newDishIsLimitedTime, setNewDishIsLimitedTime] = useState(false);
+  const [reviewNewDishName, setReviewNewDishName] = useState('');
+  const [reviewNewDishCategory, setReviewNewDishCategory] = useState<DishCategory>('ENTREE');
+  const [reviewNewDishIsLimitedTime, setReviewNewDishIsLimitedTime] = useState(false);
   const [menuActionLoading, setMenuActionLoading] = useState(false);
   const [expandedDishId, setExpandedDishId] = useState<string | null>(null);
   const [dishDetailsById, setDishDetailsById] = useState<Record<string, DishDetailsResponse>>({});
@@ -330,11 +335,15 @@ export default function RestaurantProfilePage() {
 
   useEffect(() => {
     if (!availableDishesForSelectedCourse.length) {
-      setSelectedDishToAdd('');
+      setSelectedDishToAdd(ADD_NEW_DISH_OPTION_VALUE);
       return;
     }
 
     setSelectedDishToAdd((current) => {
+      if (current === ADD_NEW_DISH_OPTION_VALUE) {
+        return current;
+      }
+
       if (current && availableDishesForSelectedCourse.some((dish) => dish.id === current)) {
         return current;
       }
@@ -410,7 +419,7 @@ export default function RestaurantProfilePage() {
   };
 
   const addDishToMeal = () => {
-    if (!selectedDishToAdd) {
+    if (!selectedDishToAdd || selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE) {
       return;
     }
 
@@ -568,36 +577,85 @@ export default function RestaurantProfilePage() {
     }
   };
 
-  const addMenuItem = async (event: FormEvent) => {
-    event.preventDefault();
-
+  const addPlateToRestaurantMenu = async (input: {
+    name: string;
+    category: DishCategory;
+    isLimitedTime: boolean;
+  }): Promise<Dish | null> => {
     if (!token) {
       setMessage('Please login first.');
-      return;
+      return null;
     }
 
     setMenuActionLoading(true);
     try {
-      await apiRequest<Dish>('/dishes', {
+      const createdDish = await apiRequest<Dish>('/dishes', {
         method: 'POST',
         token,
         body: {
           restaurantId,
-          name: newDishName,
-          category: newDishCategory,
-          status: newDishIsLimitedTime ? 'SEASONAL' : 'ACTIVE',
+          name: input.name,
+          category: input.category,
+          status: input.isLimitedTime ? 'SEASONAL' : 'ACTIVE',
           source: 'USER',
         },
       });
-      setNewDishName('');
-      setNewDishIsLimitedTime(false);
-      setMessage('Plate added.');
       await fetchProfile();
+      return createdDish;
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to add plate');
+      return null;
     } finally {
       setMenuActionLoading(false);
     }
+  };
+
+  const addMenuItem = async (event: FormEvent) => {
+    event.preventDefault();
+
+    const trimmedDishName = newDishName.trim();
+    if (!trimmedDishName) {
+      setMessage('Enter a plate name to add.');
+      return;
+    }
+
+    const createdDish = await addPlateToRestaurantMenu({
+      name: trimmedDishName,
+      category: newDishCategory,
+      isLimitedTime: newDishIsLimitedTime,
+    });
+
+    if (!createdDish) {
+      return;
+    }
+
+    setNewDishName('');
+    setNewDishIsLimitedTime(false);
+    setMessage('Plate added.');
+  };
+
+  const addDishFromReview = async () => {
+    const trimmedDishName = reviewNewDishName.trim();
+    if (!trimmedDishName) {
+      setMessage('Enter a plate name to add.');
+      return;
+    }
+
+    const createdDish = await addPlateToRestaurantMenu({
+      name: trimmedDishName,
+      category: reviewNewDishCategory,
+      isLimitedTime: reviewNewDishIsLimitedTime,
+    });
+
+    if (!createdDish) {
+      return;
+    }
+
+    setReviewNewDishName('');
+    setReviewNewDishIsLimitedTime(false);
+    setSelectedCourse(createdDish.category);
+    setSelectedDishToAdd(createdDish.id);
+    setMessage('Plate added. Select it and click "Add plate" to include it in this review.');
   };
 
   const flagUnavailable = async (id: string) => {
@@ -705,33 +763,62 @@ export default function RestaurantProfilePage() {
       </section>
 
       {tab === 'overview' && (
-        <section className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="app-card-soft">
-            <h2 className="app-section-title">Top 3 Rated Plates</h2>
-            <ul className="mt-2 space-y-2 text-sm text-slate-300">
-              {data.topDishes.length ? (
-                data.topDishes.map((dish) => (
-                  <li key={dish.dishId} className="break-words">
-                    {dish.name} · {dish.avgScore.toFixed(2)} ({dish.reviewCount} reviews)
-                  </li>
-                ))
-              ) : (
-                <li className="app-muted">No plate ratings yet.</li>
-              )}
-            </ul>
+        <section className="mt-6 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="app-card-soft">
+              <h2 className="app-section-title">Top 3 Rated Plates</h2>
+              <ul className="mt-2 space-y-2 text-sm text-slate-300">
+                {data.topDishes.length ? (
+                  data.topDishes.map((dish) => (
+                    <li key={dish.dishId} className="break-words">
+                      {dish.name} · {dish.avgScore.toFixed(2)} ({dish.reviewCount} reviews)
+                    </li>
+                  ))
+                ) : (
+                  <li className="app-muted">No plate ratings yet.</li>
+                )}
+              </ul>
+            </div>
+
+            <div className="app-card-soft">
+              <h2 className="app-section-title">Bottom 3 Rated Plates</h2>
+              <ul className="mt-2 space-y-2 text-sm text-slate-300">
+                {data.bottomDishes.length ? (
+                  data.bottomDishes.map((dish) => (
+                    <li key={dish.dishId} className="break-words">
+                      {dish.name} · {dish.avgScore.toFixed(2)} ({dish.reviewCount} reviews)
+                    </li>
+                  ))
+                ) : (
+                  <li className="app-muted">No plate ratings yet.</li>
+                )}
+              </ul>
+            </div>
           </div>
 
           <div className="app-card-soft">
-            <h2 className="app-section-title">Bottom 3 Rated Plates</h2>
-            <ul className="mt-2 space-y-2 text-sm text-slate-300">
-              {data.bottomDishes.length ? (
-                data.bottomDishes.map((dish) => (
-                  <li key={dish.dishId} className="break-words">
-                    {dish.name} · {dish.avgScore.toFixed(2)} ({dish.reviewCount} reviews)
+            <h2 className="app-section-title">Recent reviews</h2>
+            <ul className="mt-3 space-y-2 text-sm">
+              {reviews.length ? (
+                reviews.map((review) => (
+                  <li key={review.id} className="app-list-item">
+                    <p className="font-medium text-slate-100 break-words">
+                      {review.dish.name} · {review.dishScore.toFixed(2)} by {review.user.name}
+                    </p>
+                    {review.mealReview && (
+                      <p className="app-muted break-words text-xs">
+                        Service {review.mealReview.serviceScore} · Atmosphere {review.mealReview.atmosphereScore} ·
+                        {' '}Value {review.mealReview.valueScore}
+                      </p>
+                    )}
+                    {review.reviewText && <p className="app-muted break-words">“{review.reviewText}”</p>}
+                    {review.mealReview?.reviewText && (
+                      <p className="break-words text-xs text-slate-500">Meal note: “{review.mealReview.reviewText}”</p>
+                    )}
                   </li>
                 ))
               ) : (
-                <li className="app-muted">No plate ratings yet.</li>
+                <li className="app-muted">No reviews yet.</li>
               )}
             </ul>
           </div>
@@ -1042,18 +1129,20 @@ export default function RestaurantProfilePage() {
                     <select
                       className="app-select mt-1"
                       value={selectedDishToAdd}
-                      onChange={(e) => setSelectedDishToAdd(e.target.value)}
-                      disabled={!availableDishesForSelectedCourse.length}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setSelectedDishToAdd(nextValue);
+                        if (nextValue === ADD_NEW_DISH_OPTION_VALUE) {
+                          setReviewNewDishCategory(selectedCourse);
+                        }
+                      }}
                     >
-                      {availableDishesForSelectedCourse.length ? (
-                        availableDishesForSelectedCourse.map((dish) => (
-                          <option key={dish.id} value={dish.id}>
-                            {dish.name}
-                          </option>
-                        ))
-                      ) : (
-                        <option value="">No available plates for this course</option>
-                      )}
+                      {availableDishesForSelectedCourse.map((dish) => (
+                        <option key={dish.id} value={dish.id}>
+                          {dish.name}
+                        </option>
+                      ))}
+                      <option value={ADD_NEW_DISH_OPTION_VALUE}>+ Add a new plate...</option>
                     </select>
                   </label>
 
@@ -1061,7 +1150,7 @@ export default function RestaurantProfilePage() {
                     type="button"
                     className="app-btn-primary w-full md:h-[42px] md:w-auto"
                     onClick={addDishToMeal}
-                    disabled={!selectedDishToAdd}
+                    disabled={!selectedDishToAdd || selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE}
                   >
                     Add plate
                   </button>
@@ -1070,6 +1159,50 @@ export default function RestaurantProfilePage() {
                 <p className="app-muted mt-2 text-xs">
                   Change course, add a plate, then switch course again until all items you ate are selected.
                 </p>
+
+                {selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE && (
+                  <div className="mt-3 rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+                    <p className="text-sm font-medium text-slate-200">Add a new plate to the menu</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <input
+                        className="app-input sm:col-span-2 lg:col-span-2"
+                        placeholder="Plate name"
+                        value={reviewNewDishName}
+                        onChange={(event) => setReviewNewDishName(event.target.value)}
+                      />
+                      <select
+                        className="app-select"
+                        value={reviewNewDishCategory}
+                        onChange={(event) => setReviewNewDishCategory(event.target.value as DishCategory)}
+                      >
+                        {DISH_COURSES.map((course) => (
+                          <option key={course} value={course}>
+                            {DISH_COURSE_LABEL[course]}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-slate-200">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-indigo-400"
+                          checked={reviewNewDishIsLimitedTime}
+                          onChange={(event) => setReviewNewDishIsLimitedTime(event.target.checked)}
+                        />
+                        Limited time item
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      className="app-btn-secondary mt-3 w-full sm:w-auto"
+                      onClick={() => {
+                        void addDishFromReview();
+                      }}
+                      disabled={menuActionLoading}
+                    >
+                      {menuActionLoading ? 'Adding...' : 'Add plate to menu'}
+                    </button>
+                  </div>
+                )}
 
                 {selectedDishes.length > 0 && (
                   <ul className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -1238,33 +1371,6 @@ export default function RestaurantProfilePage() {
               </ul>
             </div>
           )}
-
-          <div className="mt-6 border-t border-slate-800 pt-4">
-            <h3 className="app-section-title">Recent reviews</h3>
-            <ul className="mt-3 space-y-2 text-sm">
-              {reviews.length ? (
-                reviews.map((review) => (
-                  <li key={review.id} className="app-list-item">
-                    <p className="font-medium text-slate-100 break-words">
-                      {review.dish.name} · {review.dishScore.toFixed(2)} by {review.user.name}
-                    </p>
-                    {review.mealReview && (
-                      <p className="app-muted break-words text-xs">
-                        Service {review.mealReview.serviceScore} · Atmosphere {review.mealReview.atmosphereScore} ·
-                        {' '}Value {review.mealReview.valueScore}
-                      </p>
-                    )}
-                    {review.reviewText && <p className="app-muted break-words">“{review.reviewText}”</p>}
-                    {review.mealReview?.reviewText && (
-                      <p className="break-words text-xs text-slate-500">Meal note: “{review.mealReview.reviewText}”</p>
-                    )}
-                  </li>
-                ))
-              ) : (
-                <li className="app-muted">No reviews yet.</li>
-              )}
-            </ul>
-          </div>
         </section>
       )}
 
