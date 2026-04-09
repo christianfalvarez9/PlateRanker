@@ -169,6 +169,11 @@ type UploadDishPhotoResponse = {
   objectPath: string;
 };
 
+const MENU_ADMIN_EMAILS = (process.env.NEXT_PUBLIC_MENU_ADMIN_EMAILS ?? '')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+
 function normalizeWebsiteUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed) {
@@ -233,7 +238,8 @@ export default function RestaurantProfilePage() {
   const [dishPhotoUploadStates, setDishPhotoUploadStates] = useState<Record<string, DishPhotoUploadState>>({});
   const [showDishPhotosById, setShowDishPhotosById] = useState<Record<string, boolean>>({});
 
-  const viewer = getUser<{ id: string; name: string }>();
+  const viewer = getUser<{ id: string; name: string; email?: string }>();
+  const isMenuAdmin = Boolean(viewer?.email && MENU_ADMIN_EMAILS.includes(viewer.email.toLowerCase()));
   const token = getToken();
 
   const menuItems = useMemo(() => data?.menu.activeAndSeasonal ?? [], [data]);
@@ -693,6 +699,60 @@ export default function RestaurantProfilePage() {
     }
   };
 
+  const moveDishToHistorical = async (dish: Dish) => {
+    if (!token) {
+      setMessage('Please login first.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Move "${dish.name}" to historical menu?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setMenuActionLoading(true);
+    try {
+      await apiRequest<Dish>(`/dishes/${dish.id}/move-historical`, {
+        method: 'PATCH',
+        token,
+      });
+      await fetchProfile();
+      setMessage(`Moved "${dish.name}" to historical menu.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to move item to historical menu');
+    } finally {
+      setMenuActionLoading(false);
+    }
+  };
+
+  const permanentlyDeleteHistoricalDish = async (dish: Dish) => {
+    if (!token) {
+      setMessage('Please login first.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Permanently delete "${dish.name}"? This also deletes related reviews and saved recipe links. This cannot be undone.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setMenuActionLoading(true);
+    try {
+      await apiRequest<EmptyResponse>(`/dishes/${dish.id}/permanent`, {
+        method: 'DELETE',
+        token,
+      });
+      await fetchProfile();
+      setMessage(`Permanently deleted "${dish.name}".`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Failed to permanently delete item');
+    } finally {
+      setMenuActionLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <>
@@ -931,13 +991,27 @@ export default function RestaurantProfilePage() {
                         className="mt-3 space-y-3 rounded-xl border border-slate-700 bg-slate-900/60 p-3 text-sm text-slate-300"
                       >
                         <div className="flex justify-end">
-                          <button
-                            type="button"
-                            className="app-btn-secondary px-3 py-1.5"
-                            onClick={() => flagUnavailable(dish.id)}
-                          >
-                            Flag unavailable ({dish.unavailableFlagCount})
-                          </button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              className="app-btn-secondary px-3 py-1.5"
+                              onClick={() => flagUnavailable(dish.id)}
+                            >
+                              Flag unavailable ({dish.unavailableFlagCount})
+                            </button>
+                            {isMenuAdmin && (
+                              <button
+                                type="button"
+                                className="app-btn-danger px-3 py-1.5"
+                                onClick={() => {
+                                  void moveDishToHistorical(dish);
+                                }}
+                                disabled={menuActionLoading}
+                              >
+                                Move to historical
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         {dishDetailsLoading && <p className="app-muted">Loading plate details...</p>}
@@ -1064,7 +1138,23 @@ export default function RestaurantProfilePage() {
             {data.menu.historical.length ? (
               data.menu.historical.map((dish) => (
                 <li key={dish.id} className="app-list-item text-slate-300">
-                  {dish.name} · {dish.category} · flags: {dish.unavailableFlagCount}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                      {dish.name} · {dish.category} · flags: {dish.unavailableFlagCount}
+                    </span>
+                    {isMenuAdmin && (
+                      <button
+                        type="button"
+                        className="app-btn-danger w-full px-3 py-1.5 text-xs sm:w-auto"
+                        onClick={() => {
+                          void permanentlyDeleteHistoricalDish(dish);
+                        }}
+                        disabled={menuActionLoading}
+                      >
+                        Delete permanently
+                      </button>
+                    )}
+                  </div>
                 </li>
               ))
             ) : (

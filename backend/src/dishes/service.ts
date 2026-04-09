@@ -91,3 +91,39 @@ export async function flagDishUnavailable(dishId: string) {
 
   return updated;
 }
+
+export async function moveDishToHistorical(dishId: string) {
+  const dish = await prisma.dish.findUnique({ where: { id: dishId } });
+  if (!dish) {
+    throw new HttpError(404, 'Dish not found');
+  }
+
+  if (dish.status === DishStatus.HISTORICAL && dish.isActive === false) {
+    return dish;
+  }
+
+  const updated = await prisma.dish.update({
+    where: { id: dishId },
+    data: {
+      status: DishStatus.HISTORICAL,
+      isActive: false,
+    },
+  });
+
+  return updated;
+}
+
+export async function permanentlyDeleteHistoricalDish(dishId: string) {
+  const dish = await prisma.dish.findUnique({ where: { id: dishId } });
+  if (!dish) {
+    throw new HttpError(404, 'Dish not found');
+  }
+
+  if (dish.status !== DishStatus.HISTORICAL) {
+    throw new HttpError(400, 'Dish must be moved to historical before permanent deletion');
+  }
+
+  await prisma.dish.delete({ where: { id: dishId } });
+
+  return { success: true } as const;
+}

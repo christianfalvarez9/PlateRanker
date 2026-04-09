@@ -105,6 +105,10 @@ function csvListFromEnv(key: string): string[] {
     .filter(Boolean);
 }
 
+function emailAllowlistFromEnv(key: string): string[] {
+  return csvListFromEnv(key).map((email) => email.toLowerCase());
+}
+
 function corsOriginAllowlistFromEnv(): string[] {
   const configuredOrigins = csvListFromEnv('CORS_ORIGIN_ALLOWLIST');
   if (configuredOrigins.length > 0) {
@@ -132,5 +136,6 @@ export const env = {
   dishPhotoUploadMaxBytes: positiveIntFromEnv('DISH_PHOTO_UPLOAD_MAX_BYTES', 8 * 1024 * 1024),
   recipeApiKey: process.env.RECIPE_API_KEY ?? '',
   recipeSearchCx: process.env.RECIPE_SEARCH_CX ?? '',
+  menuAdminEmails: emailAllowlistFromEnv('MENU_ADMIN_EMAILS'),
   backgroundJobsEnabled: booleanFromEnv('BACKGROUND_JOBS_ENABLED', !isProduction),
 };

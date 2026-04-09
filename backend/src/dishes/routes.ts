@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, requireMenuAdmin } from '../middleware/auth';
 import { asyncHandler } from '../utils/http';
 import { addDishSchema } from './validators';
-import { addDish, flagDishUnavailable } from './service';
+import { addDish, flagDishUnavailable, moveDishToHistorical, permanentlyDeleteHistoricalDish } from './service';
 
 export const dishesRouter = Router();
 
@@ -22,5 +22,25 @@ dishesRouter.patch(
   asyncHandler(async (req, res) => {
     const dish = await flagDishUnavailable(req.params.id);
     res.json(dish);
+  }),
+);
+
+dishesRouter.patch(
+  '/:id/move-historical',
+  requireAuth,
+  requireMenuAdmin,
+  asyncHandler(async (req, res) => {
+    const dish = await moveDishToHistorical(req.params.id);
+    res.json(dish);
+  }),
+);
+
+dishesRouter.delete(
+  '/:id/permanent',
+  requireAuth,
+  requireMenuAdmin,
+  asyncHandler(async (req, res) => {
+    const result = await permanentlyDeleteHistoricalDish(req.params.id);
+    res.json(result);
   }),
 );

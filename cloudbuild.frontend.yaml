@@ -6,6 +6,7 @@ substitutions:
   _RUN_SA: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
   _IMAGE_TAG: REQUIRED_IMAGE_TAG
   _NEXT_PUBLIC_API_BASE_URL: REQUIRED_NEXT_PUBLIC_API_BASE_URL
+  _NEXT_PUBLIC_MENU_ADMIN_EMAILS: REQUIRED_NEXT_PUBLIC_MENU_ADMIN_EMAILS
 
 steps:
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -22,6 +23,10 @@ steps:
           echo "Missing required substitution: _NEXT_PUBLIC_API_BASE_URL"
           exit 1
         fi
+        if [[ "${_NEXT_PUBLIC_MENU_ADMIN_EMAILS}" == "REQUIRED_NEXT_PUBLIC_MENU_ADMIN_EMAILS" ]]; then
+          echo "Missing required substitution: _NEXT_PUBLIC_MENU_ADMIN_EMAILS"
+          exit 1
+        fi
 
   - name: gcr.io/cloud-builders/docker
     id: Build frontend image
@@ -33,6 +38,8 @@ steps:
       - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --build-arg
       - NEXT_PUBLIC_API_BASE_URL=${_NEXT_PUBLIC_API_BASE_URL}
+      - --build-arg
+      - NEXT_PUBLIC_MENU_ADMIN_EMAILS=${_NEXT_PUBLIC_MENU_ADMIN_EMAILS}
       - .
 
   - name: gcr.io/cloud-builders/docker

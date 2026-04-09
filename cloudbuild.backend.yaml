@@ -8,6 +8,7 @@ substitutions:
   _IMAGE_TAG: REQUIRED_IMAGE_TAG
   _CLOUDSQL_INSTANCE: REQUIRED_CLOUDSQL_INSTANCE
   _CORS_ALLOWLIST: REQUIRED_CORS_ALLOWLIST
+  _MENU_ADMIN_EMAILS: REQUIRED_MENU_ADMIN_EMAILS
   _GOOGLE_PLACES_API_KEY_SECRET: GOOGLE_PLACES_API_KEY
   _JWT_SECRET_NAME: JWT_SECRET
   _DATABASE_URL_SECRET: DATABASE_URL
@@ -33,6 +34,10 @@ steps:
         fi
         if [[ "${_CORS_ALLOWLIST}" == "REQUIRED_CORS_ALLOWLIST" ]]; then
           echo "Missing required substitution: _CORS_ALLOWLIST"
+          exit 1
+        fi
+        if [[ "${_MENU_ADMIN_EMAILS}" == "REQUIRED_MENU_ADMIN_EMAILS" ]]; then
+          echo "Missing required substitution: _MENU_ADMIN_EMAILS"
           exit 1
         fi
         if [[ "${_DISH_PHOTO_BUCKET}" == "REQUIRED_DISH_PHOTO_BUCKET" ]]; then
@@ -106,6 +111,7 @@ steps:
       - --set-env-vars=NODE_ENV=production
       - --set-env-vars=PORT=8080
       - --set-env-vars=CORS_ORIGIN_ALLOWLIST=${_CORS_ALLOWLIST}
+      - --set-env-vars=MENU_ADMIN_EMAILS=${_MENU_ADMIN_EMAILS}
       - --set-env-vars=DISH_PHOTO_BUCKET_NAME=${_DISH_PHOTO_BUCKET}
       - --set-env-vars=DISH_PHOTO_PUBLIC_BASE_URL=${_DISH_PHOTO_PUBLIC_BASE_URL}
       - --set-env-vars=DISH_PHOTO_UPLOAD_MAX_BYTES=8388608

@@ -37,3 +37,16 @@ export const requireAuth = asyncHandler(async (req: Request, _res: Response, nex
   req.user = user;
   next();
 });
+
+export const requireMenuAdmin = asyncHandler(async (req: Request, _res: Response, next: NextFunction) => {
+  const user = req.user;
+  if (!user) {
+    throw new HttpError(401, 'Missing authorization token');
+  }
+
+  if (!env.menuAdminEmails.includes(user.email.toLowerCase())) {
+    throw new HttpError(403, 'Admin permissions are required for this action');
+  }
+
+  next();
+});

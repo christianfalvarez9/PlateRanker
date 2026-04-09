@@ -300,6 +300,7 @@ DATABASE_URL="postgresql://..."
 JWT_SECRET="<strong-random-secret>"
 JWT_EXPIRES_IN="7d"
 CORS_ORIGIN_ALLOWLIST="https://your-frontend-domain.com"
+MENU_ADMIN_EMAILS="you@yourdomain.com"
 
 GOOGLE_PLACES_API_KEY="<required-in-production>"
 RECIPE_API_KEY=""
@@ -319,9 +320,10 @@ DISH_PHOTO_UPLOAD_MAX_BYTES="8388608"
 
 ```text
 NEXT_PUBLIC_API_BASE_URL="https://api.your-domain.com"
+NEXT_PUBLIC_MENU_ADMIN_EMAILS="you@yourdomain.com"
 ```
 
-In production, `NEXT_PUBLIC_API_BASE_URL` is required.
+In production, both `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_MENU_ADMIN_EMAILS` are required.
 
 ### Pre-launch checklist
 
@@ -398,7 +400,7 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
    IMAGE_TAG="$(date +%Y%m%d-%H%M%S)"
 
    gcloud builds submit --config cloudbuild.backend.yaml \
-     --substitutions=_IMAGE_TAG="${IMAGE_TAG}",_CLOUDSQL_INSTANCE="PROJECT_ID:us-central1:platerank-sql",_CORS_ALLOWLIST="https://app.example.com",_DISH_PHOTO_BUCKET="your-dish-photo-bucket"
+     --substitutions=_IMAGE_TAG="${IMAGE_TAG}",_CLOUDSQL_INSTANCE="PROJECT_ID:us-central1:platerank-sql",_CORS_ALLOWLIST="https://app.example.com",_MENU_ADMIN_EMAILS="you@yourdomain.com",_DISH_PHOTO_BUCKET="your-dish-photo-bucket"
    ```
 
 7. **Deploy frontend**
@@ -407,7 +409,7 @@ In production, `NEXT_PUBLIC_API_BASE_URL` is required.
    BACKEND_URL="$(gcloud run services describe platerank-api --region=us-central1 --format='value(status.url)')"
 
    gcloud builds submit --config cloudbuild.frontend.yaml \
-     --substitutions=_IMAGE_TAG="${IMAGE_TAG}",_NEXT_PUBLIC_API_BASE_URL="${BACKEND_URL}"
+     --substitutions=_IMAGE_TAG="${IMAGE_TAG}",_NEXT_PUBLIC_API_BASE_URL="${BACKEND_URL}",_NEXT_PUBLIC_MENU_ADMIN_EMAILS="you@yourdomain.com"
    ```
 
 8. **Set up repeat-badge scheduled processing** (recommended over in-process cron on Cloud Run)
