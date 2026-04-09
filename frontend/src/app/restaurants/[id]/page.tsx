@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { NavBar } from '@/components/NavBar';
 import { apiRequest } from '@/lib/api';
 import { getToken, getUser } from '@/lib/auth';
+import { findSimilarDishName } from '@/lib/dishNameSimilarity';
 
 type Dish = {
   id: string;
@@ -236,6 +237,11 @@ export default function RestaurantProfilePage() {
   const token = getToken();
 
   const menuItems = useMemo(() => data?.menu.activeAndSeasonal ?? [], [data]);
+  const allKnownMenuItems = useMemo(
+    () => [...(data?.menu.activeAndSeasonal ?? []), ...(data?.menu.historical ?? [])],
+    [data],
+  );
+  const allKnownMenuItemNames = useMemo(() => allKnownMenuItems.map((dish) => dish.name), [allKnownMenuItems]);
   const menuItemsForSelectedCourse = useMemo(
     () => menuItems.filter((dish) => dish.category === menuCourseFilter),
     [menuItems, menuCourseFilter],
@@ -619,6 +625,12 @@ export default function RestaurantProfilePage() {
       return;
     }
 
+    const duplicate = findSimilarDishName(trimmedDishName, allKnownMenuItemNames);
+    if (duplicate) {
+      setMessage(`A similar plate already exists on this menu: ${duplicate.existingName}`);
+      return;
+    }
+
     const createdDish = await addPlateToRestaurantMenu({
       name: trimmedDishName,
       category: newDishCategory,
@@ -638,6 +650,12 @@ export default function RestaurantProfilePage() {
     const trimmedDishName = reviewNewDishName.trim();
     if (!trimmedDishName) {
       setMessage('Enter a plate name to add.');
+      return;
+    }
+
+    const duplicate = findSimilarDishName(trimmedDishName, allKnownMenuItemNames);
+    if (duplicate) {
+      setMessage(`A similar plate already exists on this menu: ${duplicate.existingName}`);
       return;
     }
 

@@ -2,6 +2,7 @@ import { DishCategory, DishSource, DishStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../utils/http';
 import { normalizeDishName } from '../utils/ratings';
+import { findSimilarDishName } from '../utils/dishNameSimilarity';
 
 export async function addDish(input: {
   restaurantId: string;
@@ -15,16 +16,57 @@ export async function addDish(input: {
     throw new HttpError(404, 'Restaurant not found');
   }
 
-  const dish = await prisma.dish.create({
-    data: {
+  const trimmedName = input.name.trim();
+  const normalizedName = normalizeDishName(trimmedName);
+
+  const existingDishes = await prisma.dish.findMany({
+    where: {
       restaurantId: input.restaurantId,
-      name: input.name.trim(),
-      nameNormalized: normalizeDishName(input.name),
-      category: input.category,
-      status: input.status ?? DishStatus.ACTIVE,
-      source: input.source ?? DishSource.USER,
+    },
+    select: {
+      name: true,
+      nameNormalized: true,
     },
   });
+
+  const exactMatch = existingDishes.find((dish) => dish.nameNormalized === normalizedName);
+  if (exactMatch) {
+    throw new HttpError(409, `A similar plate already exists: ${exactMatch.name}`);
+  }
+
+  const similarMatch = findSimilarDishName(
+    trimmedName,
+    existingDishes.map((dish) => dish.name),
+  );
+
+  if (similarMatch) {
+    throw new HttpError(409, `A similar plate already exists: ${similarMatch.existingName}`);
+  }
+
+  let dish;
+  try {
+    dish = await prisma.dish.create({
+      data: {
+        restaurantId: input.restaurantId,
+        name: trimmedName,
+        nameNormalized: normalizedName,
+        category: input.category,
+        status: input.status ?? DishStatus.ACTIVE,
+        source: input.source ?? DishSource.USER,
+      },
+    });
+  } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: string }).code === 'P2002'
+    ) {
+      throw new HttpError(409, 'A plate with this name already exists on this menu');
+    }
+
+    throw error;
+  }
 
   return dish;
 }
