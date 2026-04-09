@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../utils/http';
 import { normalizeDishName } from '../utils/ratings';
 import { findSimilarDishName } from '../utils/dishNameSimilarity';
+import { findBlockedTermInDishName } from '../utils/menuNameModeration';
 
 export async function addDish(input: {
   restaurantId: string;
@@ -17,6 +18,11 @@ export async function addDish(input: {
   }
 
   const trimmedName = input.name.trim();
+  const blockedTerm = findBlockedTermInDishName(trimmedName);
+  if (blockedTerm) {
+    throw new HttpError(400, 'Plate name contains inappropriate language');
+  }
+
   const normalizedName = normalizeDishName(trimmedName);
 
   const existingDishes = await prisma.dish.findMany({

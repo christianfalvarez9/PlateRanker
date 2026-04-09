@@ -6,6 +6,7 @@ import { NavBar } from '@/components/NavBar';
 import { apiRequest } from '@/lib/api';
 import { getToken, getUser } from '@/lib/auth';
 import { findSimilarDishName } from '@/lib/dishNameSimilarity';
+import { containsInappropriateDishLanguage } from '@/lib/menuNameModeration';
 
 type Dish = {
   id: string;
@@ -631,6 +632,11 @@ export default function RestaurantProfilePage() {
       return;
     }
 
+    if (containsInappropriateDishLanguage(trimmedDishName)) {
+      setMessage('Plate name contains inappropriate language. Please use a different name.');
+      return;
+    }
+
     const duplicate = findSimilarDishName(trimmedDishName, allKnownMenuItemNames);
     if (duplicate) {
       setMessage(`A similar plate already exists on this menu: ${duplicate.existingName}`);
@@ -656,6 +662,11 @@ export default function RestaurantProfilePage() {
     const trimmedDishName = reviewNewDishName.trim();
     if (!trimmedDishName) {
       setMessage('Enter a plate name to add.');
+      return;
+    }
+
+    if (containsInappropriateDishLanguage(trimmedDishName)) {
+      setMessage('Plate name contains inappropriate language. Please use a different name.');
       return;
     }
 
