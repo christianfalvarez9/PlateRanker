@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { NavBar } from '@/components/NavBar';
 import { apiRequest } from '@/lib/api';
@@ -8,8 +9,21 @@ import { getToken, getUser, updateStoredUser } from '@/lib/auth';
 type ReviewHistoryItem = {
   id: string;
   dishScore: number;
+  tasteScore: number;
+  portionSizeScore: number;
+  valueScore: number;
+  presentationScore: number;
+  uniquenessScore: number;
   reviewText?: string | null;
   createdAt: string;
+  mealReview?: {
+    id: string;
+    serviceScore: number;
+    atmosphereScore: number;
+    valueScore: number;
+    reviewText?: string | null;
+    createdAt: string;
+  } | null;
   dish: {
     id: string;
     name: string;
@@ -48,6 +62,7 @@ export default function ProfilePage() {
   const token = getToken();
   const viewerId = viewer?.id;
   const [reviews, setReviews] = useState<ReviewHistoryItem[]>([]);
+  const [expandedReviewIds, setExpandedReviewIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [defaultSearchLocationInput, setDefaultSearchLocationInput] = useState(viewer?.defaultSearchLocation ?? '');
@@ -172,6 +187,13 @@ export default function ProfilePage() {
     }
   };
 
+  const toggleReviewDetails = (reviewId: string) => {
+    setExpandedReviewIds((previous) => ({
+      ...previous,
+      [reviewId]: !previous[reviewId],
+    }));
+  };
+
   return (
     <>
       <NavBar />
@@ -237,11 +259,73 @@ export default function ProfilePage() {
             {reviews.length ? (
               reviews.map((review) => (
                 <li key={review.id} className="app-list-item">
-                  <p className="font-medium">
-                    {review.dish.name} ({review.dish.category}) @ {review.restaurant.name}
-                  </p>
-                  <p className="text-slate-300">Plate score: {review.dishScore}</p>
-                  {review.reviewText && <p className="app-muted">“{review.reviewText}”</p>}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="font-medium break-words">
+                        {review.dish.name} ({review.dish.category}) @{' '}
+                        <Link
+                          href={`/restaurants/${review.restaurant.id}`}
+                          className="text-teal-300 underline hover:text-teal-200"
+                        >
+                          {review.restaurant.name}
+                        </Link>
+                      </p>
+                      <p className="text-slate-300">Plate score: {review.dishScore.toFixed(2)}</p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Link
+                        href={`/restaurants/${review.restaurant.id}`}
+                        className="app-btn-secondary inline-flex items-center justify-center px-3 py-1.5 text-xs"
+                      >
+                        Go to restaurant
+                      </Link>
+                      <button
+                        type="button"
+                        className="app-btn-secondary px-3 py-1.5 text-xs"
+                        onClick={() => toggleReviewDetails(review.id)}
+                        aria-expanded={Boolean(expandedReviewIds[review.id])}
+                        aria-controls={`review-details-${review.id}`}
+                      >
+                        {expandedReviewIds[review.id] ? 'Hide details' : 'Show details'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {review.reviewText && <p className="app-muted mt-1 break-words">“{review.reviewText}”</p>}
+
+                  {expandedReviewIds[review.id] && (
+                    <div
+                      id={`review-details-${review.id}`}
+                      className="mt-3 rounded-xl border border-slate-700 bg-slate-900/50 p-3"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Detailed scoring</p>
+                      <div className="mt-2 grid gap-2 text-xs text-slate-300 sm:grid-cols-2 lg:grid-cols-3">
+                        <p>Plate score: {review.dishScore.toFixed(2)}</p>
+                        <p>Taste: {review.tasteScore}</p>
+                        <p>Portion size: {review.portionSizeScore}</p>
+                        <p>Value: {review.valueScore}</p>
+                        <p>Presentation: {review.presentationScore}</p>
+                        <p>Uniqueness: {review.uniquenessScore}</p>
+                      </div>
+
+                      {review.mealReview && (
+                        <div className="mt-3 border-t border-slate-700 pt-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                            Meal experience scoring
+                          </p>
+                          <div className="mt-2 grid gap-2 text-xs text-slate-300 sm:grid-cols-3">
+                            <p>Service: {review.mealReview.serviceScore}</p>
+                            <p>Atmosphere: {review.mealReview.atmosphereScore}</p>
+                            <p>Cleanliness: {review.mealReview.valueScore}</p>
+                          </div>
+                          {review.mealReview.reviewText && (
+                            <p className="app-muted mt-2 break-words text-xs">Meal note: “{review.mealReview.reviewText}”</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </li>
               ))
             ) : (

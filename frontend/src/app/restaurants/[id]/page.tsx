@@ -45,6 +45,8 @@ const DISH_COURSE_LABEL: Record<DishCategory, string> = {
   DESSERT: 'Dessert',
 };
 
+const SCORE_OPTIONS = Array.from({ length: 10 }, (_, index) => index + 1);
+
 const ADD_NEW_DISH_OPTION_VALUE = '__add_new_dish__';
 
 type RecipeMatch = {
@@ -154,10 +156,6 @@ type DishDetailsResponse = {
     reviewText?: string | null;
     imageUrl?: string | null;
     createdAt: string;
-    user: {
-      id: string;
-      name: string;
-    };
   }>;
 };
 
@@ -200,6 +198,22 @@ function normalizePhoneForTel(phone: string): string {
   }
 
   return trimmed.startsWith('+') ? `+${digits}` : digits;
+}
+
+function getScoreOptionLabel(score: number): string {
+  if (score === 1) {
+    return '1-Worst';
+  }
+
+  if (score === 5) {
+    return '5-Average';
+  }
+
+  if (score === 10) {
+    return '10-Amazing';
+  }
+
+  return String(score);
 }
 
 export default function RestaurantProfilePage() {
@@ -827,7 +841,7 @@ export default function RestaurantProfilePage() {
             <p>Food: {restaurant.foodRating ?? 'No ratings yet'}</p>
             <p>Service: {restaurant.serviceRating ?? 'No ratings yet'}</p>
             <p>Atmosphere: {restaurant.atmosphereRating ?? 'No ratings yet'}</p>
-            <p>Value: {restaurant.valueRating ?? 'No ratings yet'}</p>
+            <p>Cleanliness: {restaurant.valueRating ?? 'No ratings yet'}</p>
             {restaurant.highRepeatCustomersBadge && (
               <p className="mt-2 inline-flex rounded-full border border-amber-300/30 bg-amber-300/15 px-2 py-1 text-xs text-amber-100">
                 High Repeat Customers
@@ -897,7 +911,7 @@ export default function RestaurantProfilePage() {
                     {review.mealReview && (
                       <p className="app-muted break-words text-xs">
                         Service {review.mealReview.serviceScore} · Atmosphere {review.mealReview.atmosphereScore} ·
-                        {' '}Value {review.mealReview.valueScore}
+                        {' '}Cleanliness {review.mealReview.valueScore}
                       </p>
                     )}
                     {review.reviewText && <p className="app-muted break-words">“{review.reviewText}”</p>}
@@ -1103,9 +1117,7 @@ export default function RestaurantProfilePage() {
                               {dishDetails.recentReviews.length ? (
                                 dishDetails.recentReviews.map((review) => (
                                   <li key={review.id} className="app-list-item">
-                                    <p className="font-medium text-slate-100">
-                                      {review.user.name} · {review.dishScore.toFixed(2)}
-                                    </p>
+                                    <p className="font-medium text-slate-100">Score · {review.dishScore.toFixed(2)}</p>
                                     <p className="app-muted text-xs">
                                       Taste {review.tasteScore} · Portion Size {review.portionSizeScore} · Value{' '}
                                       {review.valueScore} · Presentation {review.presentationScore} · Uniqueness{' '}
@@ -1183,36 +1195,45 @@ export default function RestaurantProfilePage() {
             <div className="grid gap-3 md:grid-cols-3">
               <label className="text-sm text-slate-300">
                 Service (1-10)
-                <input
-                  className="app-input mt-1"
-                  type="number"
-                  min={1}
-                  max={10}
+                <select
+                  className="app-select mt-1"
                   value={serviceScore}
                   onChange={(e) => setServiceScore(Number(e.target.value))}
-                />
+                >
+                  {SCORE_OPTIONS.map((score) => (
+                    <option key={score} value={score}>
+                      {getScoreOptionLabel(score)}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="text-sm text-slate-300">
                 Atmosphere (1-10)
-                <input
-                  className="app-input mt-1"
-                  type="number"
-                  min={1}
-                  max={10}
+                <select
+                  className="app-select mt-1"
                   value={atmosphereScore}
                   onChange={(e) => setAtmosphereScore(Number(e.target.value))}
-                />
+                >
+                  {SCORE_OPTIONS.map((score) => (
+                    <option key={score} value={score}>
+                      {getScoreOptionLabel(score)}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="text-sm text-slate-300">
-                Value (1-10)
-                <input
-                  className="app-input mt-1"
-                  type="number"
-                  min={1}
-                  max={10}
+                Cleanliness (1-10)
+                <select
+                  className="app-select mt-1"
                   value={valueScore}
                   onChange={(e) => setValueScore(Number(e.target.value))}
-                />
+                >
+                  {SCORE_OPTIONS.map((score) => (
+                    <option key={score} value={score}>
+                      {getScoreOptionLabel(score)}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
 
@@ -1360,58 +1381,73 @@ export default function RestaurantProfilePage() {
                       <div className="mt-2 grid gap-3 md:grid-cols-2">
                         <label className="text-sm text-slate-300">
                           Taste (1-10)
-                          <input
-                            className="app-input mt-1"
-                            type="number"
-                            min={1}
-                            max={10}
+                          <select
+                            className="app-select mt-1"
                             value={draft.taste}
                             onChange={(e) => updateDishDraft(dish.id, 'taste', Number(e.target.value))}
-                          />
+                          >
+                            {SCORE_OPTIONS.map((score) => (
+                              <option key={score} value={score}>
+                                {getScoreOptionLabel(score)}
+                              </option>
+                            ))}
+                          </select>
                         </label>
                         <label className="text-sm text-slate-300">
                           Portion Size (1-10)
-                          <input
-                            className="app-input mt-1"
-                            type="number"
-                            min={1}
-                            max={10}
+                          <select
+                            className="app-select mt-1"
                             value={draft.portionSize}
                             onChange={(e) => updateDishDraft(dish.id, 'portionSize', Number(e.target.value))}
-                          />
+                          >
+                            {SCORE_OPTIONS.map((score) => (
+                              <option key={score} value={score}>
+                                {getScoreOptionLabel(score)}
+                              </option>
+                            ))}
+                          </select>
                         </label>
                         <label className="text-sm text-slate-300">
                           Value (1-10)
-                          <input
-                            className="app-input mt-1"
-                            type="number"
-                            min={1}
-                            max={10}
+                          <select
+                            className="app-select mt-1"
                             value={draft.value}
                             onChange={(e) => updateDishDraft(dish.id, 'value', Number(e.target.value))}
-                          />
+                          >
+                            {SCORE_OPTIONS.map((score) => (
+                              <option key={score} value={score}>
+                                {getScoreOptionLabel(score)}
+                              </option>
+                            ))}
+                          </select>
                         </label>
                         <label className="text-sm text-slate-300">
                           Presentation (1-10)
-                          <input
-                            className="app-input mt-1"
-                            type="number"
-                            min={1}
-                            max={10}
+                          <select
+                            className="app-select mt-1"
                             value={draft.presentation}
                             onChange={(e) => updateDishDraft(dish.id, 'presentation', Number(e.target.value))}
-                          />
+                          >
+                            {SCORE_OPTIONS.map((score) => (
+                              <option key={score} value={score}>
+                                {getScoreOptionLabel(score)}
+                              </option>
+                            ))}
+                          </select>
                         </label>
                         <label className="text-sm text-slate-300">
                           Uniqueness (1-10)
-                          <input
-                            className="app-input mt-1"
-                            type="number"
-                            min={1}
-                            max={10}
+                          <select
+                            className="app-select mt-1"
                             value={draft.uniqueness}
                             onChange={(e) => updateDishDraft(dish.id, 'uniqueness', Number(e.target.value))}
-                          />
+                          >
+                            {SCORE_OPTIONS.map((score) => (
+                              <option key={score} value={score}>
+                                {getScoreOptionLabel(score)}
+                              </option>
+                            ))}
+                          </select>
                         </label>
                       </div>
 

@@ -68,6 +68,146 @@ const MAX_SEARCH_RESULTS = 80;
 const NEXT_PAGE_TOKEN_DELAY_MS = 2_000;
 const NEXT_PAGE_TOKEN_RETRY_DELAY_MS = 1_000;
 const NEXT_PAGE_TOKEN_MAX_RETRIES = 3;
+const STRONG_RESTAURANT_NAME_MATCH_SCORE = 2;
+
+const BROAD_RESTAURANT_QUERY_WORDS = new Set([
+  'restaurant',
+  'restaurants',
+  'food',
+  'dining',
+  'near',
+  'nearby',
+  'local',
+  'best',
+  'top',
+  'pizza',
+  'burgers',
+  'burger',
+  'sushi',
+  'tacos',
+  'mexican',
+  'italian',
+  'chinese',
+  'thai',
+  'indian',
+  'japanese',
+  'korean',
+  'vietnamese',
+  'bbq',
+  'barbecue',
+  'steak',
+  'seafood',
+  'vegan',
+  'vegetarian',
+  'breakfast',
+  'brunch',
+  'diner',
+  'cafe',
+  'coffee',
+]);
+
+function normalizeRestaurantMatchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeNormalizedRestaurantText(value: string): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value.split(' ').filter((token) => token.length >= 2);
+}
+
+function tokenizeRestaurantMatchText(value: string): string[] {
+  return tokenizeNormalizedRestaurantText(normalizeRestaurantMatchText(value));
+}
+
+function computeRestaurantNameMatchScore(query: string, candidateName?: string): number {
+  const normalizedQuery = normalizeRestaurantMatchText(query);
+  const normalizedCandidate = normalizeRestaurantMatchText(candidateName ?? '');
+
+  if (!normalizedQuery || !normalizedCandidate) {
+    return 0;
+  }
+
+  if (normalizedCandidate === normalizedQuery) {
+    return 4;
+  }
+
+  if (normalizedCandidate.includes(normalizedQuery) || normalizedQuery.includes(normalizedCandidate)) {
+    return 3;
+  }
+
+  const queryTokens = tokenizeNormalizedRestaurantText(normalizedQuery);
+  const candidateTokens = tokenizeNormalizedRestaurantText(normalizedCandidate);
+  if (!queryTokens.length || !candidateTokens.length) {
+    return 0;
+  }
+
+  const candidateTokenSet = new Set(candidateTokens);
+  const overlapCount = queryTokens.filter((token) => candidateTokenSet.has(token)).length;
+  if (overlapCount === queryTokens.length && queryTokens.length >= 2) {
+    return 2;
+  }
+
+  if (queryTokens.length >= 2 && overlapCount / queryTokens.length >= 0.75) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function hasStrongRestaurantNameMatch(places: GooglePlaceTextSearchItem[], query: string): boolean {
+  return places.some(
+    (place) => computeRestaurantNameMatchScore(query, place.name) >= STRONG_RESTAURANT_NAME_MATCH_SCORE,
+  );
+}
+
+function filterStrongRestaurantNameMatches(
+  places: GooglePlaceTextSearchItem[],
+  query: string,
+): GooglePlaceTextSearchItem[] {
+  return places.filter(
+    (place) => computeRestaurantNameMatchScore(query, place.name) >= STRONG_RESTAURANT_NAME_MATCH_SCORE,
+  );
+}
+
+function uniqueNonEmptyStrings(values: string[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function isLikelyExactRestaurantNameQuery(query: string): boolean {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (isPostalCodeQuery(trimmed) || queryLooksLikeLocation(trimmed)) {
+    return false;
+  }
+
+  const tokens = tokenizeRestaurantMatchText(trimmed);
+  if (!tokens.length) {
+    return false;
+  }
+
+  if (tokens.length === 1) {
+    return !BROAD_RESTAURANT_QUERY_WORDS.has(tokens[0]);
+  }
+
+  return !tokens.every((token) => BROAD_RESTAURANT_QUERY_WORDS.has(token));
+}
 
 function isPostalCodeQuery(query: string): boolean {
   const trimmed = query.trim();
@@ -92,6 +232,10 @@ function buildRestaurantSearchQuery(query: string, location?: string): string {
 
   if (!trimmed) {
     return appendLocation('restaurants');
+  }
+
+  if (isLikelyExactRestaurantNameQuery(trimmed)) {
+    return appendLocation(trimmed);
   }
 
   if (isPostalCodeQuery(trimmed)) {
@@ -427,6 +571,7 @@ export async function searchGooglePlaces(args: {
   }
 
   const searchQuery = buildRestaurantSearchQuery(query, location);
+  const exactNameIntent = isLikelyExactRestaurantNameQuery(query);
   const nearbyKeyword = buildNearbyKeyword(query);
   const geocodeTarget = location?.trim() || (queryLooksLikeLocation(query) ? query.trim() : undefined);
   let places: GooglePlaceTextSearchItem[] = [];
@@ -468,6 +613,27 @@ export async function searchGooglePlaces(args: {
 
       places = dedupePlaceItems(fallbackTextResults.flat());
       places = filterPlacesWithinRadius(places, resolvedLocation, radiusMeters);
+    }
+
+    if (exactNameIntent && !hasStrongRestaurantNameMatch(places, query)) {
+      const exactNameQueries = uniqueNonEmptyStrings([query, searchQuery]);
+
+      const exactNameResults = await Promise.all(
+        exactNameQueries.map((exactNameQuery) =>
+          textSearchPlaces({
+            query: exactNameQuery,
+          }),
+        ),
+      );
+
+      const strongNameMatches = filterStrongRestaurantNameMatches(
+        dedupePlaceItems(exactNameResults.flat()),
+        query,
+      );
+
+      if (strongNameMatches.length) {
+        places = dedupePlaceItems([...strongNameMatches, ...places]);
+      }
     }
   } else {
     places = await textSearchPlaces({ query: searchQuery });

@@ -328,6 +328,52 @@ function buildSearchKeywords(query: string): string[] {
   return uniqueStrings([trimmed, ...parts]);
 }
 
+function normalizeRestaurantNameForMatch(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function computeRestaurantNameMatchScore(query: string, restaurantName: string): number {
+  const normalizedQuery = normalizeRestaurantNameForMatch(query);
+  const normalizedRestaurantName = normalizeRestaurantNameForMatch(restaurantName);
+
+  if (!normalizedQuery || !normalizedRestaurantName) {
+    return 0;
+  }
+
+  if (normalizedRestaurantName === normalizedQuery) {
+    return 4;
+  }
+
+  if (
+    normalizedRestaurantName.includes(normalizedQuery) ||
+    normalizedQuery.includes(normalizedRestaurantName)
+  ) {
+    return 3;
+  }
+
+  const queryTokens = normalizedQuery.split(' ').filter((token) => token.length >= 2);
+  const restaurantTokens = normalizedRestaurantName
+    .split(' ')
+    .filter((token) => token.length >= 2);
+
+  if (!queryTokens.length || !restaurantTokens.length) {
+    return 0;
+  }
+
+  const restaurantTokenSet = new Set(restaurantTokens);
+  const overlapCount = queryTokens.filter((token) => restaurantTokenSet.has(token)).length;
+  if (overlapCount === queryTokens.length && queryTokens.length >= 2) {
+    return 2;
+  }
+
+  return 0;
+}
+
 function matchesAnyKeywordSet(values: string[], keywords: string[]): boolean {
   return keywords.some((keyword) => matchesAnyKeyword(values, keyword));
 }
@@ -550,6 +596,7 @@ export async function searchRestaurants(args: {
 }) {
   const searchKeywords = buildSearchKeywords(args.query);
   const broadQuery = isBroadRestaurantQuery(args.query) || queryLooksLikeLocation(args.query);
+  const hasSpecificTextQuery = args.query.trim().length > 0 && !broadQuery;
 
   const places = await searchGooglePlaces(args);
   const records = await upsertRestaurantsFromPlaces(places);
@@ -588,6 +635,7 @@ export async function searchRestaurants(args: {
         ...mapDishTypesFromGoogleTypes(place.types ?? []),
         ...inferDishTypesFromDishNames(dishNames),
       ]);
+      const restaurantNameMatchScore = computeRestaurantNameMatchScore(args.query, restaurant.name);
       let matchReasonCount = 0;
 
       if (matchesTextKeywords(restaurant.name, searchKeywords)) {
@@ -606,11 +654,18 @@ export async function searchRestaurants(args: {
         matchReasonCount += 1;
       }
 
+      if (restaurantNameMatchScore >= 2) {
+        matchReasonCount += 2;
+      } else if (restaurantNameMatchScore === 1) {
+        matchReasonCount += 1;
+      }
+
       return {
         restaurant,
         cuisines,
         restaurantTypes,
         dishTypes,
+        restaurantNameMatchScore,
         matchReasonCount,
       };
     })
@@ -619,11 +674,20 @@ export async function searchRestaurants(args: {
         return true;
       }
 
+      if (hasSpecificTextQuery && record.restaurantNameMatchScore >= 2) {
+        return true;
+      }
+
       return record.matchReasonCount > 0;
     });
 
   return [...rankedRecords]
     .sort((a, b) => {
+      const nameMatchDiff = b.restaurantNameMatchScore - a.restaurantNameMatchScore;
+      if (nameMatchDiff !== 0) {
+        return nameMatchDiff;
+      }
+
       const reasonDiff = b.matchReasonCount - a.matchReasonCount;
       if (reasonDiff !== 0) {
         return reasonDiff;

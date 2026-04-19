@@ -87,6 +87,16 @@ export async function getUserReviews(userId: string, requesterId: string) {
   const reviews = await prisma.review.findMany({
     where: { userId },
     include: {
+      mealReview: {
+        select: {
+          id: true,
+          serviceScore: true,
+          atmosphereScore: true,
+          valueScore: true,
+          reviewText: true,
+          createdAt: true,
+        },
+      },
       restaurant: {
         select: {
           id: true,
