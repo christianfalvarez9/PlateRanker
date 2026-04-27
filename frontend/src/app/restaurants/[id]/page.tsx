@@ -46,7 +46,6 @@ const DISH_COURSE_LABEL: Record<DishCategory, string> = {
 };
 
 const SCORE_OPTIONS = Array.from({ length: 10 }, (_, index) => index + 1);
-
 const ADD_NEW_DISH_OPTION_VALUE = '__add_new_dish__';
 
 type RecipeMatch = {
@@ -162,7 +161,7 @@ type DishDetailsResponse = {
 type EmptyResponse = Record<string, never>;
 
 type ActiveTab = 'overview' | 'menu' | 'reviews' | 'historical';
-type ReviewStep = 1 | 2 | 3 | 4;
+type ReviewCourseSelection = DishCategory | '';
 
 type UploadDishPhotoResponse = {
   imageUrl: string;
@@ -173,14 +172,6 @@ const MENU_ADMIN_EMAILS = (process.env.NEXT_PUBLIC_MENU_ADMIN_EMAILS ?? '')
   .split(',')
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
-
-const REVIEW_STEP_SEQUENCE: ReviewStep[] = [1, 2, 3, 4];
-const REVIEW_STEP_LABEL: Record<ReviewStep, string> = {
-  1: 'Meal basics',
-  2: 'Choose plates',
-  3: 'Rate plates',
-  4: 'Review & submit',
-};
 
 function normalizeWebsiteUrl(url: string): string {
   const trimmed = url.trim();
@@ -235,10 +226,6 @@ function calculateDishDraftScore(draft: DishReviewDraft): number {
   );
 }
 
-function asReviewStep(value: number): ReviewStep {
-  return Math.max(1, Math.min(4, value)) as ReviewStep;
-}
-
 export default function RestaurantProfilePage() {
   const params = useParams<{ id: string }>();
   const restaurantId = params.id;
@@ -257,7 +244,7 @@ export default function RestaurantProfilePage() {
   const [mealReviewText, setMealReviewText] = useState('');
   const [selectedDishIds, setSelectedDishIds] = useState<string[]>([]);
   const [dishDrafts, setDishDrafts] = useState<Record<string, DishReviewDraft>>({});
-  const [selectedCourse, setSelectedCourse] = useState<DishCategory>('ENTREE');
+  const [selectedCourse, setSelectedCourse] = useState<ReviewCourseSelection>('');
   const [selectedDishToAdd, setSelectedDishToAdd] = useState('');
   const [menuCourseFilter, setMenuCourseFilter] = useState<DishCategory>('ENTREE');
 
@@ -275,8 +262,7 @@ export default function RestaurantProfilePage() {
   const [dishImageUrls, setDishImageUrls] = useState<Record<string, string>>({});
   const [dishPhotoUploadStates, setDishPhotoUploadStates] = useState<Record<string, DishPhotoUploadState>>({});
   const [showDishPhotosById, setShowDishPhotosById] = useState<Record<string, boolean>>({});
-  const [reviewStep, setReviewStep] = useState<ReviewStep>(1);
-  const [expandedReviewDishId, setExpandedReviewDishId] = useState<string | null>(null);
+  const [activeReviewDishId, setActiveReviewDishId] = useState<string | null>(null);
   const [showReviewAddDishForm, setShowReviewAddDishForm] = useState(false);
 
   const viewer = getUser<{ id: string; name: string; email?: string }>();
@@ -298,10 +284,15 @@ export default function RestaurantProfilePage() {
     [menuItems, selectedDishIds],
   );
   const availableDishesForSelectedCourse = useMemo(
-    () =>
-      menuItems.filter(
+    () => {
+      if (!selectedCourse) {
+        return [];
+      }
+
+      return menuItems.filter(
         (dish) => dish.category === selectedCourse && !selectedDishIds.includes(dish.id),
-      ),
+      );
+    },
     [menuItems, selectedCourse, selectedDishIds],
   );
 
@@ -359,22 +350,6 @@ export default function RestaurantProfilePage() {
       return;
     }
 
-    const hasDishesInSelectedCourse = menuItems.some((dish) => dish.category === selectedCourse);
-    if (hasDishesInSelectedCourse) {
-      return;
-    }
-
-    const fallbackCourse = DISH_COURSES.find((course) => menuItems.some((dish) => dish.category === course));
-    if (fallbackCourse) {
-      setSelectedCourse(fallbackCourse);
-    }
-  }, [menuItems, selectedCourse]);
-
-  useEffect(() => {
-    if (!menuItems.length) {
-      return;
-    }
-
     const hasDishesInSelectedCourse = menuItems.some((dish) => dish.category === menuCourseFilter);
     if (hasDishesInSelectedCourse) {
       return;
@@ -387,48 +362,35 @@ export default function RestaurantProfilePage() {
   }, [menuItems, menuCourseFilter]);
 
   useEffect(() => {
-    if (!availableDishesForSelectedCourse.length) {
-      setSelectedDishToAdd(ADD_NEW_DISH_OPTION_VALUE);
+    if (!selectedCourse) {
+      setSelectedDishToAdd('');
+      setShowReviewAddDishForm(false);
       return;
     }
 
     setSelectedDishToAdd((current) => {
-      if (current === ADD_NEW_DISH_OPTION_VALUE) {
-        return current;
-      }
-
       if (current && availableDishesForSelectedCourse.some((dish) => dish.id === current)) {
         return current;
       }
 
-      return availableDishesForSelectedCourse[0].id;
+      return '';
     });
-  }, [availableDishesForSelectedCourse]);
-
-  useEffect(() => {
-    if (selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE) {
-      setShowReviewAddDishForm(true);
-    }
-  }, [selectedDishToAdd]);
+  }, [availableDishesForSelectedCourse, selectedCourse]);
 
   useEffect(() => {
     if (!selectedDishes.length) {
-      setExpandedReviewDishId(null);
-
-      if (reviewStep > 2) {
-        setReviewStep(2);
-      }
+      setActiveReviewDishId(null);
 
       return;
     }
 
     const hasExpandedDish =
-      expandedReviewDishId !== null && selectedDishes.some((dish) => dish.id === expandedReviewDishId);
+      activeReviewDishId !== null && selectedDishes.some((dish) => dish.id === activeReviewDishId);
 
     if (!hasExpandedDish) {
-      setExpandedReviewDishId(selectedDishes[0].id);
+      setActiveReviewDishId(selectedDishes[0].id);
     }
-  }, [expandedReviewDishId, reviewStep, selectedDishes]);
+  }, [activeReviewDishId, selectedDishes]);
 
   useEffect(() => {
     if (!expandedDishId) {
@@ -440,6 +402,20 @@ export default function RestaurantProfilePage() {
       setExpandedDishId(null);
     }
   }, [expandedDishId, menuItems]);
+
+  const resetReviewDishSelection = useCallback(() => {
+    setSelectedDishIds([]);
+    setDishDrafts({});
+    setSelectedCourse('');
+    setSelectedDishToAdd('');
+    setActiveReviewDishId(null);
+    setShowReviewAddDishForm(false);
+    setReviewNewDishName('');
+    setReviewNewDishCategory('ENTREE');
+    setReviewNewDishIsLimitedTime(false);
+    setDishImageUrls({});
+    setDishPhotoUploadStates({});
+  }, []);
 
   const updateDishDraft = <K extends keyof DishReviewDraft,>(
     dishId: string,
@@ -497,13 +473,12 @@ export default function RestaurantProfilePage() {
   };
 
   const addDishToMeal = () => {
-    if (!selectedDishToAdd || selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE) {
+    if (!selectedDishToAdd) {
       return;
     }
 
     setShowReviewAddDishForm(false);
-    setExpandedReviewDishId(selectedDishToAdd);
-    setReviewStep((previous) => asReviewStep(Math.max(previous, 3)));
+    setActiveReviewDishId(selectedDishToAdd);
 
     setSelectedDishIds((previous) => {
       if (previous.includes(selectedDishToAdd)) {
@@ -523,14 +498,34 @@ export default function RestaurantProfilePage() {
         [selectedDishToAdd]: createDefaultDishDraft(),
       };
     });
+
+    setSelectedDishToAdd('');
   };
 
   const removeDishFromMeal = (dishId: string) => {
-    if (expandedReviewDishId === dishId) {
-      setExpandedReviewDishId(null);
+    if (activeReviewDishId === dishId) {
+      setActiveReviewDishId(null);
     }
 
     setSelectedDishIds((previous) => previous.filter((id) => id !== dishId));
+
+    setDishDrafts((previous) => {
+      const next = { ...previous };
+      delete next[dishId];
+      return next;
+    });
+
+    setDishImageUrls((previous) => {
+      const next = { ...previous };
+      delete next[dishId];
+      return next;
+    });
+
+    setDishPhotoUploadStates((previous) => {
+      const next = { ...previous };
+      delete next[dishId];
+      return next;
+    });
   };
 
   const setDishUploadState = (dishId: string, updates: Partial<DishPhotoUploadState>) => {
@@ -587,11 +582,6 @@ export default function RestaurantProfilePage() {
   const submitMealReview = async (event: FormEvent) => {
     event.preventDefault();
 
-    if (reviewStep < 4) {
-      setReviewStep((previous) => asReviewStep(previous + 1));
-      return;
-    }
-
     if (!token || !viewer) {
       setMessage('Please login first to submit a review.');
       return;
@@ -636,34 +626,9 @@ export default function RestaurantProfilePage() {
       setMessage(`Meal review submitted! ${result.mealReview.dishReviews.length} plate reviews saved.`);
       setRecipeMatches(result.recipeMatches);
       setMealReviewText('');
-      setDishDrafts((previous) => {
-        const next = { ...previous };
-        selectedDishIds.forEach((dishId) => {
-          const current = next[dishId] ?? createDefaultDishDraft();
-          next[dishId] = {
-            ...current,
-            reviewText: '',
-          };
-        });
-        return next;
-      });
-      setDishImageUrls((prev) => {
-        const next = { ...prev };
-        selectedDishIds.forEach((dishId) => {
-          delete next[dishId];
-        });
-        return next;
-      });
-      setDishPhotoUploadStates((prev) => {
-        const next = { ...prev };
-        selectedDishIds.forEach((dishId) => {
-          delete next[dishId];
-        });
-        return next;
-      });
+      resetReviewDishSelection();
+
       await fetchProfile();
-      setReviewStep(1);
-      setExpandedReviewDishId(null);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to submit meal review');
     } finally {
@@ -770,9 +735,9 @@ export default function RestaurantProfilePage() {
     setReviewNewDishName('');
     setReviewNewDishIsLimitedTime(false);
     setSelectedCourse(createdDish.category);
-    setSelectedDishToAdd(createdDish.id);
+    setSelectedDishToAdd('');
     setShowReviewAddDishForm(false);
-    setMessage('Plate added. Select it and click "Add plate" to include it in this review.');
+    setMessage('Plate added to menu. Select it and click "Add plate" to include it in this review.');
   };
 
   const flagUnavailable = async (id: string) => {
@@ -846,19 +811,6 @@ export default function RestaurantProfilePage() {
     }
   };
 
-  const goToNextReviewStep = () => {
-    if (reviewStep === 2 && !selectedDishes.length) {
-      setMessage('Select at least one plate for this meal review.');
-      return;
-    }
-
-    setReviewStep((previous) => asReviewStep(previous + 1));
-  };
-
-  const goToPreviousReviewStep = () => {
-    setReviewStep((previous) => asReviewStep(previous - 1));
-  };
-
   if (loading) {
     return (
       <>
@@ -881,13 +833,9 @@ export default function RestaurantProfilePage() {
   const websiteHref = restaurant.website ? normalizeWebsiteUrl(restaurant.website) : '';
   const phoneHref = restaurant.phone ? normalizePhoneForTel(restaurant.phone) : '';
   const activeReviewDish =
-    selectedDishes.find((dish) => dish.id === expandedReviewDishId) ?? selectedDishes[0] ?? null;
-  const activeReviewDishDraft = activeReviewDish
-    ? (dishDrafts[activeReviewDish.id] ?? createDefaultDishDraft())
-    : null;
-  const activeReviewUploadState = activeReviewDish
-    ? dishPhotoUploadStates[activeReviewDish.id]
-    : undefined;
+    selectedDishes.find((dish) => dish.id === activeReviewDishId) ?? null;
+  const activeReviewDishDraft =
+    activeReviewDish ? dishDrafts[activeReviewDish.id] ?? createDefaultDishDraft() : null;
 
   return (
     <>
@@ -944,7 +892,13 @@ export default function RestaurantProfilePage() {
             <button
               key={item}
               className={`app-tab ${tab === item ? 'app-tab-active' : ''}`}
-              onClick={() => setTab(item)}
+              onClick={() => {
+                if (item === 'reviews' && tab !== 'reviews') {
+                  resetReviewDishSelection();
+                }
+
+                setTab(item);
+              }}
             >
               {item[0].toUpperCase() + item.slice(1)}
             </button>
@@ -995,7 +949,7 @@ export default function RestaurantProfilePage() {
                 reviews.map((review) => (
                   <li key={review.id} className="app-list-item">
                     <p className="font-medium text-slate-100 break-words">
-                      {review.dish.name} · {review.dishScore.toFixed(2)} by {review.user.name}
+                      {review.dish.name} · {review.dishScore.toFixed(2)}
                     </p>
                     {review.mealReview && (
                       <p className="app-muted break-words text-xs">
@@ -1003,9 +957,9 @@ export default function RestaurantProfilePage() {
                         {' '}Cleanliness {review.mealReview.valueScore}
                       </p>
                     )}
-                    {review.reviewText && <p className="app-muted break-words">“{review.reviewText}”</p>}
+                    {review.reviewText && <p className="app-muted break-words">"{review.reviewText}"</p>}
                     {review.mealReview?.reviewText && (
-                      <p className="break-words text-xs text-slate-500">Meal note: “{review.mealReview.reviewText}”</p>
+                      <p className="break-words text-xs text-slate-500">Meal note: "{review.mealReview.reviewText}"</p>
                     )}
                   </li>
                 ))
@@ -1280,71 +1234,82 @@ export default function RestaurantProfilePage() {
         <section className="app-card mt-6">
           <h2 className="app-section-title">Submit your PlateRank</h2>
 
-          <form className="mt-3 space-y-4" onSubmit={submitMealReview}>
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="text-sm text-slate-300">
-                Service (1-10)
-                <select
-                  className="app-select mt-1"
-                  value={serviceScore}
-                  onChange={(e) => setServiceScore(Number(e.target.value))}
-                >
-                  {SCORE_OPTIONS.map((score) => (
-                    <option key={score} value={score}>
-                      {getScoreOptionLabel(score)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-sm text-slate-300">
-                Atmosphere (1-10)
-                <select
-                  className="app-select mt-1"
-                  value={atmosphereScore}
-                  onChange={(e) => setAtmosphereScore(Number(e.target.value))}
-                >
-                  {SCORE_OPTIONS.map((score) => (
-                    <option key={score} value={score}>
-                      {getScoreOptionLabel(score)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-sm text-slate-300">
-                Cleanliness (1-10)
-                <select
-                  className="app-select mt-1"
-                  value={valueScore}
-                  onChange={(e) => setValueScore(Number(e.target.value))}
-                >
-                  {SCORE_OPTIONS.map((score) => (
-                    <option key={score} value={score}>
-                      {getScoreOptionLabel(score)}
-                    </option>
-                  ))}
-                </select>
+          <form className="mt-4 space-y-5" onSubmit={submitMealReview}>
+            <div className="app-card-soft space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-teal-200">
+                Step 1 · Rate the overall meal
+              </p>
+              <div className="grid gap-3 md:grid-cols-3">
+                <label className="text-sm text-slate-300">
+                  Service (1-10)
+                  <select
+                    className="app-select mt-1"
+                    value={serviceScore}
+                    onChange={(e) => setServiceScore(Number(e.target.value))}
+                  >
+                    {SCORE_OPTIONS.map((score) => (
+                      <option key={score} value={score}>
+                        {getScoreOptionLabel(score)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm text-slate-300">
+                  Atmosphere (1-10)
+                  <select
+                    className="app-select mt-1"
+                    value={atmosphereScore}
+                    onChange={(e) => setAtmosphereScore(Number(e.target.value))}
+                  >
+                    {SCORE_OPTIONS.map((score) => (
+                      <option key={score} value={score}>
+                        {getScoreOptionLabel(score)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm text-slate-300">
+                  Cleanliness (1-10)
+                  <select
+                    className="app-select mt-1"
+                    value={valueScore}
+                    onChange={(e) => setValueScore(Number(e.target.value))}
+                  >
+                    {SCORE_OPTIONS.map((score) => (
+                      <option key={score} value={score}>
+                        {getScoreOptionLabel(score)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block text-sm text-slate-300">
+                Optional overall meal note
+                <textarea
+                  className="app-textarea mt-1"
+                  rows={3}
+                  placeholder="Share anything that stood out"
+                  value={mealReviewText}
+                  onChange={(e) => setMealReviewText(e.target.value)}
+                />
               </label>
             </div>
 
-            <textarea
-              className="app-textarea"
-              rows={3}
-              placeholder="Optional overall meal note"
-              value={mealReviewText}
-              onChange={(e) => setMealReviewText(e.target.value)}
-            />
-
-            <div>
-              <p className="text-sm font-medium text-slate-200">Select plates you ate in this meal</p>
-              <div className="mt-2 rounded-xl border border-slate-800/80 bg-slate-950/40 p-3">
+            <div className="app-card-soft space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-teal-200">
+                Step 2 · Add plates from this meal
+              </p>
+              <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-3">
                 <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
                   <label className="text-sm text-slate-300">
                     Course
                     <select
                       className="app-select mt-1"
                       value={selectedCourse}
-                      onChange={(e) => setSelectedCourse(e.target.value as DishCategory)}
+                      onChange={(e) => setSelectedCourse(e.target.value as ReviewCourseSelection)}
                     >
+                      <option value="">Select course</option>
                       {DISH_COURSES.map((course) => (
                         <option key={course} value={course}>
                           {DISH_COURSE_LABEL[course]}
@@ -1358,14 +1323,21 @@ export default function RestaurantProfilePage() {
                     <select
                       className="app-select mt-1"
                       value={selectedDishToAdd}
+                      disabled={!selectedCourse}
                       onChange={(event) => {
                         const nextValue = event.target.value;
                         setSelectedDishToAdd(nextValue);
+
                         if (nextValue === ADD_NEW_DISH_OPTION_VALUE) {
-                          setReviewNewDishCategory(selectedCourse);
+                          setReviewNewDishCategory(selectedCourse || 'ENTREE');
+                          setShowReviewAddDishForm(true);
+                          return;
                         }
+
+                        setShowReviewAddDishForm(false);
                       }}
                     >
+                      <option value="">Select plate</option>
                       {availableDishesForSelectedCourse.map((dish) => (
                         <option key={dish.id} value={dish.id}>
                           {dish.name}
@@ -1379,7 +1351,7 @@ export default function RestaurantProfilePage() {
                     type="button"
                     className="app-btn-primary w-full md:h-[42px] md:w-auto"
                     onClick={addDishToMeal}
-                    disabled={!selectedDishToAdd || selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE}
+                    disabled={!selectedCourse || !selectedDishToAdd || selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE}
                   >
                     Add plate
                   </button>
@@ -1389,7 +1361,7 @@ export default function RestaurantProfilePage() {
                   Change course, add a plate, then switch course again until all items you ate are selected.
                 </p>
 
-                {selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE && (
+                {showReviewAddDishForm && (
                   <div className="mt-3 rounded-xl border border-slate-700 bg-slate-900/60 p-3">
                     <p className="text-sm font-medium text-slate-200">Add a new plate to the menu</p>
                     <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
