@@ -2,10 +2,13 @@
 
 PlateRank is a responsive full-stack web application for rating restaurants and individual dishes using weighted scoring logic. It supports restaurant discovery, dish reviews, menu management (including historical dish tracking), recipe matching for highly-rated dishes, and a high-repeat-customer badge.
 
+The repository now also includes an **Expo React Native mobile client** in `mobile/` for Android and iOS, while keeping the existing website intact.
+
 ## Tech Stack
 
 - **Frontend:** Next.js (TypeScript) + Tailwind CSS
 - **Backend:** Express (TypeScript)
+- **Mobile:** Expo + React Native (TypeScript)
 - **Database:** PostgreSQL + Prisma
 - **Auth:** JWT
 - **Jobs:** node-cron (daily repeat-customer badge recalculation)
@@ -133,6 +136,14 @@ frontend/
       profile/page.tsx
     components/
     lib/
+
+mobile/
+  App.tsx
+  src/
+    App.tsx
+    components/
+    screens/
+    lib/
 ```
 
 ---
@@ -191,6 +202,71 @@ npm run dev
 
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:4000`
+
+### 7) Start mobile app (Android/iOS)
+
+Copy and edit:
+
+- `mobile/.env.example` → `mobile/.env`
+
+Set:
+
+- `EXPO_PUBLIC_API_BASE_URL` (for local use, `http://10.0.2.2:4000` for Android emulator, or your machine LAN URL for physical devices)
+
+Install mobile dependencies:
+
+```bash
+npm run mobile:install
+```
+
+Run Expo dev server:
+
+```bash
+npm run mobile:start
+```
+
+Or run backend + mobile together:
+
+```bash
+npm run dev:mobile
+```
+
+Platform shortcuts:
+
+```bash
+npm run mobile:android
+npm run mobile:ios
+```
+
+### 8) Build downloadable production Android APK (installer)
+
+This project includes an EAS profile for a production APK in `mobile/eas.json`:
+
+- profile: `production-apk`
+- distribution: `internal`
+- Android output: `apk`
+- API base URL baked into build: `https://api.plateranks.com`
+
+First-time setup (one-time per machine/account):
+
+```bash
+npm run mobile:install
+npx eas login
+```
+
+Build the production APK:
+
+```bash
+npm run mobile:build:android:apk
+```
+
+EAS will print a build URL when complete. Open that URL on your Android device to download and install the APK.
+
+> If Android blocks install, enable **Install unknown apps** for the browser/file manager you used.
+
+> The mobile client normalizes trailing slashes on `EXPO_PUBLIC_API_BASE_URL`, so `https://api.plateranks.com/` and `https://api.plateranks.com` both work.
+
+> The web client in `frontend/` is unchanged and continues to run/deploy independently.
 
 ---
 

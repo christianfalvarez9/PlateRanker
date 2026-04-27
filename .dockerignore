@@ -1,5 +1,6 @@
 .git
 .idea
+.vscode
 node_modules
 **/node_modules
 **/.next
@@ -7,3 +8,13 @@ node_modules
 **/*.log
 backend/.env
 frontend/.env.local
+mobile/.env
+
+# Shrink Cloud Build upload context
+mobile/**
+!mobile/package.json
+!mobile/package-lock.json
+
+# Misc local files not needed in container builds
+*.iml
+App website.docx

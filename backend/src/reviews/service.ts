@@ -4,6 +4,7 @@ import { HttpError } from '../utils/http';
 import { calculateDishScore } from '../utils/ratings';
 import { recomputeRestaurantRatings } from '../restaurants/ratings';
 import { findRecipeMatch, RecipeMatch } from '../integrations/recipeProvider';
+import { REVIEW_EDIT_WINDOW_MS } from './constants';
 
 function normalizeOptionalText(value?: string): string | undefined {
   const trimmed = value?.trim();
@@ -41,6 +42,18 @@ type CreateMealReviewInput = {
     reviewText?: string;
     imageUrl?: string;
   }>;
+};
+
+type UpdateReviewInput = {
+  userId: string;
+  reviewId: string;
+  tasteScore?: number;
+  portionSizeScore?: number;
+  valueScore?: number;
+  presentationScore?: number;
+  uniquenessScore?: number;
+  reviewText?: string | null;
+  imageUrl?: string | null;
 };
 
 type ReviewWithRelations = Awaited<ReturnType<typeof prisma.review.create>>;
@@ -367,5 +380,87 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
   return {
     mealReview: mealReviewWithDishReviews,
     recipeMatches,
+  };
+}
+
+export async function updateReview(input: UpdateReviewInput) {
+  const review = await prisma.review.findUnique({
+    where: { id: input.reviewId },
+  });
+
+  if (!review) {
+    throw new HttpError(404, 'Review not found');
+  }
+
+  if (review.userId !== input.userId) {
+    throw new HttpError(403, 'Cannot edit another user\'s review');
+  }
+
+  const editDeadline = new Date(review.createdAt.getTime() + REVIEW_EDIT_WINDOW_MS);
+  if (Date.now() > editDeadline.getTime()) {
+    throw new HttpError(403, 'This review can no longer be edited (24-hour window expired)');
+  }
+
+  const nextTasteScore = input.tasteScore ?? review.tasteScore;
+  const nextPortionSizeScore = input.portionSizeScore ?? review.portionSizeScore;
+  const nextValueScore = input.valueScore ?? review.valueScore;
+  const nextPresentationScore = input.presentationScore ?? review.presentationScore;
+  const nextUniquenessScore = input.uniquenessScore ?? review.uniquenessScore;
+
+  const nextDishScore = calculateDishScore({
+    tasteScore: nextTasteScore,
+    portionSizeScore: nextPortionSizeScore,
+    valueScore: nextValueScore,
+    presentationScore: nextPresentationScore,
+    uniquenessScore: nextUniquenessScore,
+  });
+
+  const updatedReview = await prisma.review.update({
+    where: { id: review.id },
+    data: {
+      tasteScore: input.tasteScore,
+      portionSizeScore: input.portionSizeScore,
+      valueScore: input.valueScore,
+      presentationScore: input.presentationScore,
+      uniquenessScore: input.uniquenessScore,
+      dishScore: nextDishScore,
+      reviewText: input.reviewText === undefined ? undefined : normalizeOptionalText(input.reviewText ?? undefined) ?? null,
+      imageUrl: input.imageUrl === undefined ? undefined : input.imageUrl,
+    },
+    include: {
+      dish: {
+        select: {
+          id: true,
+          name: true,
+          category: true,
+        },
+      },
+      restaurant: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      mealReview: {
+        select: {
+          id: true,
+          serviceScore: true,
+          atmosphereScore: true,
+          valueScore: true,
+          reviewText: true,
+          createdAt: true,
+        },
+      },
+    },
+  });
+
+  await recomputeRestaurantRatings(review.restaurantId);
+
+  const editableUntil = new Date(updatedReview.createdAt.getTime() + REVIEW_EDIT_WINDOW_MS);
+
+  return {
+    ...updatedReview,
+    editableUntil,
+    canEdit: Date.now() <= editableUntil.getTime(),
   };
 }

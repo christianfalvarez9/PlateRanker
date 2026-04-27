@@ -45,6 +45,51 @@ export const createReviewSchema = z
     imageUrl: value.imageUrl,
   }));
 
+export const reviewIdParamSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const updateReviewSchema = z
+  .object({
+    tasteScore: score.optional(),
+    portionSizeScore: score.optional(),
+    valueScore: score.optional(),
+    portionScore: score.optional(),
+    costScore: score.optional(),
+    presentationScore: score.optional(),
+    uniquenessScore: score.optional(),
+    reviewText: z.union([z.string().trim().max(1000), z.null()]).optional(),
+    imageUrl: z.union([z.string().url(), z.null()]).optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasAnyFieldToUpdate =
+      value.tasteScore !== undefined ||
+      value.portionSizeScore !== undefined ||
+      value.portionScore !== undefined ||
+      value.valueScore !== undefined ||
+      value.costScore !== undefined ||
+      value.presentationScore !== undefined ||
+      value.uniquenessScore !== undefined ||
+      value.reviewText !== undefined ||
+      value.imageUrl !== undefined;
+
+    if (!hasAnyFieldToUpdate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one review field must be provided for update',
+      });
+    }
+  })
+  .transform((value) => ({
+    tasteScore: value.tasteScore,
+    portionSizeScore: value.portionSizeScore ?? value.portionScore,
+    valueScore: value.valueScore ?? value.costScore,
+    presentationScore: value.presentationScore,
+    uniquenessScore: value.uniquenessScore,
+    reviewText: value.reviewText,
+    imageUrl: value.imageUrl,
+  }));
+
 const mealDishReviewSchema = z
   .object({
     dishId: z.string().uuid(),

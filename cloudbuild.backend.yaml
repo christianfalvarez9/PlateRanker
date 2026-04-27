@@ -4,6 +4,8 @@ substitutions:
   _SERVICE: platerank-api
   _MIGRATION_JOB: platerank-db-migrate
   _AR_HOST: us-central1-docker.pkg.dev
+  _BUILD_CACHE_TAG: buildcache
+  _DEPLOY_MIGRATION_JOB: "true"
   _RUN_SA: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
   _IMAGE_TAG: REQUIRED_IMAGE_TAG
   _CLOUDSQL_INSTANCE: REQUIRED_CLOUDSQL_INSTANCE
@@ -46,13 +48,25 @@ steps:
         fi
 
   - name: gcr.io/cloud-builders/docker
+    id: Pull backend build cache
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        docker pull ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_BUILD_CACHE_TAG} || true
+
+  - name: gcr.io/cloud-builders/docker
     id: Build backend image
     args:
       - build
       - -f
       - Dockerfile
+      - --cache-from
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_BUILD_CACHE_TAG}
       - -t
       - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
+      - -t
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_BUILD_CACHE_TAG}
       - .
 
   - name: gcr.io/cloud-builders/docker
@@ -61,37 +75,39 @@ steps:
       - push
       - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
 
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    id: Deploy migration job
-    entrypoint: gcloud
+  - name: gcr.io/cloud-builders/docker
+    id: Push backend build cache
     args:
-      - run
-      - jobs
-      - deploy
-      - ${_MIGRATION_JOB}
-      - --project=${PROJECT_ID}
-      - --region=${_REGION}
-      - --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
-      - --service-account=${_RUN_SA}
-      - --task-timeout=900s
-      - --max-retries=0
-      - --command=npm
-      - --args=run,prisma:migrate:deploy,-w,backend
-      - --set-env-vars=NODE_ENV=production
-      - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
-      - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest
+      - push
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_BUILD_CACHE_TAG}
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    id: Run migrations
-    entrypoint: gcloud
+    id: Deploy and run migrations
+    entrypoint: bash
     args:
-      - run
-      - jobs
-      - execute
-      - ${_MIGRATION_JOB}
-      - --project=${PROJECT_ID}
-      - --region=${_REGION}
-      - --wait
+      - -ceu
+      - |
+        if [[ "${_DEPLOY_MIGRATION_JOB}" == "true" ]]; then
+          gcloud run jobs deploy ${_MIGRATION_JOB} \
+            --project=${PROJECT_ID} \
+            --region=${_REGION} \
+            --image=${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG} \
+            --service-account=${_RUN_SA} \
+            --task-timeout=900s \
+            --max-retries=0 \
+            --command=npm \
+            --args=run,prisma:migrate:deploy,-w,backend \
+            --set-env-vars=NODE_ENV=production \
+            --add-cloudsql-instances=${_CLOUDSQL_INSTANCE} \
+            --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest
+        else
+          echo "Skipping migration job deploy because _DEPLOY_MIGRATION_JOB=${_DEPLOY_MIGRATION_JOB}"
+        fi
+
+        gcloud run jobs execute ${_MIGRATION_JOB} \
+          --project=${PROJECT_ID} \
+          --region=${_REGION} \
+          --wait
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: Deploy backend to Cloud Run

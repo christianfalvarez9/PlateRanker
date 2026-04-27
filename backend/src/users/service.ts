@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../utils/http';
+import { REVIEW_EDIT_WINDOW_MS } from '../reviews/constants';
 
 async function listDashboardReviews(userId: string) {
   return prisma.review.findMany({
@@ -116,7 +117,14 @@ export async function getUserReviews(userId: string, requesterId: string) {
     },
   });
 
-  return reviews;
+  return reviews.map((review) => {
+    const editableUntil = new Date(review.createdAt.getTime() + REVIEW_EDIT_WINDOW_MS);
+    return {
+      ...review,
+      editableUntil,
+      canEdit: Date.now() <= editableUntil.getTime(),
+    };
+  });
 }
 
 export async function getUserDashboard(userId: string, requesterId: string) {

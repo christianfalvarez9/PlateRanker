@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { asyncHandler } from '../utils/http';
-import { createMealReviewSchema, createReviewSchema } from './validators';
-import { createMealReview, createReview } from './service';
+import { createMealReviewSchema, createReviewSchema, reviewIdParamSchema, updateReviewSchema } from './validators';
+import { createMealReview, createReview, updateReview } from './service';
 
 export const reviewsRouter = Router();
 
@@ -31,5 +31,21 @@ reviewsRouter.post(
     });
 
     res.status(201).json(result);
+  }),
+);
+
+reviewsRouter.patch(
+  '/reviews/:id',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { id } = reviewIdParamSchema.parse(req.params);
+    const input = updateReviewSchema.parse(req.body);
+    const result = await updateReview({
+      userId: req.user!.id,
+      reviewId: id,
+      ...input,
+    });
+
+    res.json(result);
   }),
 );

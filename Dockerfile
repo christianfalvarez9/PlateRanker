@@ -3,12 +3,13 @@ WORKDIR /app
 COPY package*.json ./
 COPY backend/package*.json backend/
 COPY frontend/package*.json frontend/
-COPY backend/prisma backend/prisma/
+COPY mobile/package*.json mobile/
 RUN npm ci --ignore-scripts
 
-COPY . .
+COPY backend/tsconfig.json backend/tsconfig.json
+COPY backend/src backend/src
+COPY backend/prisma backend/prisma
 RUN npm run build -w backend
-RUN npm run prisma:generate -w backend
 
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app

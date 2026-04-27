@@ -615,7 +615,7 @@ export async function searchGooglePlaces(args: {
       places = filterPlacesWithinRadius(places, resolvedLocation, radiusMeters);
     }
 
-    if (exactNameIntent && !hasStrongRestaurantNameMatch(places, query)) {
+    if (exactNameIntent) {
       const exactNameQueries = uniqueNonEmptyStrings([query, searchQuery]);
 
       const exactNameResults = await Promise.all(

@@ -162,6 +162,7 @@ type DishDetailsResponse = {
 type EmptyResponse = Record<string, never>;
 
 type ActiveTab = 'overview' | 'menu' | 'reviews' | 'historical';
+type ReviewStep = 1 | 2 | 3 | 4;
 
 type UploadDishPhotoResponse = {
   imageUrl: string;
@@ -172,6 +173,14 @@ const MENU_ADMIN_EMAILS = (process.env.NEXT_PUBLIC_MENU_ADMIN_EMAILS ?? '')
   .split(',')
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
+
+const REVIEW_STEP_SEQUENCE: ReviewStep[] = [1, 2, 3, 4];
+const REVIEW_STEP_LABEL: Record<ReviewStep, string> = {
+  1: 'Meal basics',
+  2: 'Choose plates',
+  3: 'Rate plates',
+  4: 'Review & submit',
+};
 
 function normalizeWebsiteUrl(url: string): string {
   const trimmed = url.trim();
@@ -216,6 +225,20 @@ function getScoreOptionLabel(score: number): string {
   return String(score);
 }
 
+function calculateDishDraftScore(draft: DishReviewDraft): number {
+  return (
+    draft.taste * 0.6 +
+    draft.portionSize * 0.15 +
+    draft.value * 0.15 +
+    draft.presentation * 0.05 +
+    draft.uniqueness * 0.05
+  );
+}
+
+function asReviewStep(value: number): ReviewStep {
+  return Math.max(1, Math.min(4, value)) as ReviewStep;
+}
+
 export default function RestaurantProfilePage() {
   const params = useParams<{ id: string }>();
   const restaurantId = params.id;
@@ -252,6 +275,9 @@ export default function RestaurantProfilePage() {
   const [dishImageUrls, setDishImageUrls] = useState<Record<string, string>>({});
   const [dishPhotoUploadStates, setDishPhotoUploadStates] = useState<Record<string, DishPhotoUploadState>>({});
   const [showDishPhotosById, setShowDishPhotosById] = useState<Record<string, boolean>>({});
+  const [reviewStep, setReviewStep] = useState<ReviewStep>(1);
+  const [expandedReviewDishId, setExpandedReviewDishId] = useState<string | null>(null);
+  const [showReviewAddDishForm, setShowReviewAddDishForm] = useState(false);
 
   const viewer = getUser<{ id: string; name: string; email?: string }>();
   const isMenuAdmin = Boolean(viewer?.email && MENU_ADMIN_EMAILS.includes(viewer.email.toLowerCase()));
@@ -380,6 +406,31 @@ export default function RestaurantProfilePage() {
   }, [availableDishesForSelectedCourse]);
 
   useEffect(() => {
+    if (selectedDishToAdd === ADD_NEW_DISH_OPTION_VALUE) {
+      setShowReviewAddDishForm(true);
+    }
+  }, [selectedDishToAdd]);
+
+  useEffect(() => {
+    if (!selectedDishes.length) {
+      setExpandedReviewDishId(null);
+
+      if (reviewStep > 2) {
+        setReviewStep(2);
+      }
+
+      return;
+    }
+
+    const hasExpandedDish =
+      expandedReviewDishId !== null && selectedDishes.some((dish) => dish.id === expandedReviewDishId);
+
+    if (!hasExpandedDish) {
+      setExpandedReviewDishId(selectedDishes[0].id);
+    }
+  }, [expandedReviewDishId, reviewStep, selectedDishes]);
+
+  useEffect(() => {
     if (!expandedDishId) {
       return;
     }
@@ -450,6 +501,10 @@ export default function RestaurantProfilePage() {
       return;
     }
 
+    setShowReviewAddDishForm(false);
+    setExpandedReviewDishId(selectedDishToAdd);
+    setReviewStep((previous) => asReviewStep(Math.max(previous, 3)));
+
     setSelectedDishIds((previous) => {
       if (previous.includes(selectedDishToAdd)) {
         return previous;
@@ -471,6 +526,10 @@ export default function RestaurantProfilePage() {
   };
 
   const removeDishFromMeal = (dishId: string) => {
+    if (expandedReviewDishId === dishId) {
+      setExpandedReviewDishId(null);
+    }
+
     setSelectedDishIds((previous) => previous.filter((id) => id !== dishId));
   };
 
@@ -527,6 +586,12 @@ export default function RestaurantProfilePage() {
 
   const submitMealReview = async (event: FormEvent) => {
     event.preventDefault();
+
+    if (reviewStep < 4) {
+      setReviewStep((previous) => asReviewStep(previous + 1));
+      return;
+    }
+
     if (!token || !viewer) {
       setMessage('Please login first to submit a review.');
       return;
@@ -597,6 +662,8 @@ export default function RestaurantProfilePage() {
         return next;
       });
       await fetchProfile();
+      setReviewStep(1);
+      setExpandedReviewDishId(null);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to submit meal review');
     } finally {
@@ -704,6 +771,7 @@ export default function RestaurantProfilePage() {
     setReviewNewDishIsLimitedTime(false);
     setSelectedCourse(createdDish.category);
     setSelectedDishToAdd(createdDish.id);
+    setShowReviewAddDishForm(false);
     setMessage('Plate added. Select it and click "Add plate" to include it in this review.');
   };
 
@@ -778,6 +846,19 @@ export default function RestaurantProfilePage() {
     }
   };
 
+  const goToNextReviewStep = () => {
+    if (reviewStep === 2 && !selectedDishes.length) {
+      setMessage('Select at least one plate for this meal review.');
+      return;
+    }
+
+    setReviewStep((previous) => asReviewStep(previous + 1));
+  };
+
+  const goToPreviousReviewStep = () => {
+    setReviewStep((previous) => asReviewStep(previous - 1));
+  };
+
   if (loading) {
     return (
       <>
@@ -799,6 +880,14 @@ export default function RestaurantProfilePage() {
   const { restaurant } = data;
   const websiteHref = restaurant.website ? normalizeWebsiteUrl(restaurant.website) : '';
   const phoneHref = restaurant.phone ? normalizePhoneForTel(restaurant.phone) : '';
+  const activeReviewDish =
+    selectedDishes.find((dish) => dish.id === expandedReviewDishId) ?? selectedDishes[0] ?? null;
+  const activeReviewDishDraft = activeReviewDish
+    ? (dishDrafts[activeReviewDish.id] ?? createDefaultDishDraft())
+    : null;
+  const activeReviewUploadState = activeReviewDish
+    ? dishPhotoUploadStates[activeReviewDish.id]
+    : undefined;
 
   return (
     <>

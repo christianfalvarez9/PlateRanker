@@ -3,6 +3,7 @@ substitutions:
   _SERVICE: platerank-web
   _REPOSITORY: platerank
   _AR_HOST: us-central1-docker.pkg.dev
+  _BUILD_CACHE_TAG: buildcache
   _RUN_SA: platerank-runner@${PROJECT_ID}.iam.gserviceaccount.com
   _IMAGE_TAG: REQUIRED_IMAGE_TAG
   _NEXT_PUBLIC_API_BASE_URL: REQUIRED_NEXT_PUBLIC_API_BASE_URL
@@ -29,13 +30,25 @@ steps:
         fi
 
   - name: gcr.io/cloud-builders/docker
+    id: Pull frontend build cache
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        docker pull ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_BUILD_CACHE_TAG} || true
+
+  - name: gcr.io/cloud-builders/docker
     id: Build frontend image
     args:
       - build
       - -f
       - frontend/Dockerfile
+      - --cache-from
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_BUILD_CACHE_TAG}
       - -t
       - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
+      - -t
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_BUILD_CACHE_TAG}
       - --build-arg
       - NEXT_PUBLIC_API_BASE_URL=${_NEXT_PUBLIC_API_BASE_URL}
       - --build-arg
@@ -47,6 +60,12 @@ steps:
     args:
       - push
       - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push frontend build cache
+    args:
+      - push
+      - ${_AR_HOST}/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE}:${_BUILD_CACHE_TAG}
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: Deploy frontend to Cloud Run

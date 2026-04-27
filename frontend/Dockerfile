@@ -4,10 +4,17 @@ WORKDIR /app
 COPY package*.json ./
 COPY backend/package*.json backend/
 COPY frontend/package*.json frontend/
+COPY mobile/package*.json mobile/
 
 RUN npm ci --ignore-scripts
 
-COPY . .
+COPY frontend/tsconfig.json frontend/tsconfig.json
+COPY frontend/next.config.js frontend/next.config.js
+COPY frontend/postcss.config.js frontend/postcss.config.js
+COPY frontend/tailwind.config.ts frontend/tailwind.config.ts
+COPY frontend/next-env.d.ts frontend/next-env.d.ts
+COPY frontend/public frontend/public
+COPY frontend/src frontend/src
 
 ARG NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
