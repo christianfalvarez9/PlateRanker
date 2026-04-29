@@ -56,7 +56,7 @@ steps:
       - --set-env-vars=DISH_PHOTO_BUCKET_NAME=${_DISH_PHOTO_BUCKET}
       - --set-env-vars=DISH_PHOTO_PUBLIC_BASE_URL=${_DISH_PHOTO_PUBLIC_BASE_URL}
       - --set-env-vars=DISH_PHOTO_UPLOAD_MAX_BYTES=8388608
-      - --set-env-vars=JWT_EXPIRES_IN=7d
+      - --set-env-vars=JWT_EXPIRES_IN=disabled
       - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
       - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest
       - --set-secrets=JWT_SECRET=${_JWT_SECRET_NAME}:latest

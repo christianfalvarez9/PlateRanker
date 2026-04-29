@@ -264,6 +264,8 @@ export default function RestaurantProfilePage() {
   const [showDishPhotosById, setShowDishPhotosById] = useState<Record<string, boolean>>({});
   const [activeReviewDishId, setActiveReviewDishId] = useState<string | null>(null);
   const [showReviewAddDishForm, setShowReviewAddDishForm] = useState(false);
+  const [showOverviewRecentReviews, setShowOverviewRecentReviews] = useState(false);
+  const [showMenuAddForm, setShowMenuAddForm] = useState(false);
 
   const viewer = getUser<{ id: string; name: string; email?: string }>();
   const isMenuAdmin = Boolean(viewer?.email && MENU_ADMIN_EMAILS.includes(viewer.email.toLowerCase()));
@@ -913,6 +915,7 @@ export default function RestaurantProfilePage() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="app-card-soft">
               <h2 className="app-section-title">Top 3 Rated Plates</h2>
+              <p className="mt-1 text-xs text-slate-400">Highest community-rated items at this restaurant.</p>
               <ul className="mt-2 space-y-2 text-sm text-slate-300">
                 {data.topDishes.length ? (
                   data.topDishes.map((dish) => (
@@ -928,6 +931,7 @@ export default function RestaurantProfilePage() {
 
             <div className="app-card-soft">
               <h2 className="app-section-title">Bottom 3 Rated Plates</h2>
+              <p className="mt-1 text-xs text-slate-400">Items currently scoring lowest from recent community ratings.</p>
               <ul className="mt-2 space-y-2 text-sm text-slate-300">
                 {data.bottomDishes.length ? (
                   data.bottomDishes.map((dish) => (
@@ -943,90 +947,127 @@ export default function RestaurantProfilePage() {
           </div>
 
           <div className="app-card-soft">
-            <h2 className="app-section-title">Recent reviews</h2>
-            <ul className="mt-3 space-y-2 text-sm">
-              {reviews.length ? (
-                reviews.map((review) => (
-                  <li key={review.id} className="app-list-item">
-                    <p className="font-medium text-slate-100 break-words">
-                      {review.dish.name} · {review.dishScore.toFixed(2)}
-                    </p>
-                    {review.mealReview && (
-                      <p className="app-muted break-words text-xs">
-                        Service {review.mealReview.serviceScore} · Atmosphere {review.mealReview.atmosphereScore} ·
-                        {' '}Cleanliness {review.mealReview.valueScore}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="app-section-title">Recent reviews</h2>
+                <p className="mt-1 text-xs text-slate-400">Latest community feedback for this restaurant.</p>
+              </div>
+              <button
+                type="button"
+                className="app-btn-secondary w-full sm:w-auto"
+                onClick={() => setShowOverviewRecentReviews((previous) => !previous)}
+                aria-expanded={showOverviewRecentReviews}
+              >
+                {showOverviewRecentReviews ? '▾ Hide recent reviews' : `▸ Show recent reviews (${reviews.length})`}
+              </button>
+            </div>
+
+            {showOverviewRecentReviews ? (
+              <ul className="mt-3 space-y-2 text-sm">
+                {reviews.length ? (
+                  reviews.map((review) => (
+                    <li key={review.id} className="app-list-item">
+                      <p className="font-medium text-slate-100 break-words">
+                        {review.dish.name} · {review.dishScore.toFixed(2)}
                       </p>
-                    )}
-                    {review.reviewText && <p className="app-muted break-words">"{review.reviewText}"</p>}
-                    {review.mealReview?.reviewText && (
-                      <p className="break-words text-xs text-slate-500">Meal note: "{review.mealReview.reviewText}"</p>
-                    )}
-                  </li>
-                ))
-              ) : (
-                <li className="app-muted">No reviews yet.</li>
-              )}
-            </ul>
+                      {review.mealReview && (
+                        <p className="app-muted break-words text-xs">
+                          Service {review.mealReview.serviceScore} · Atmosphere {review.mealReview.atmosphereScore} ·
+                          {' '}Cleanliness {review.mealReview.valueScore}
+                        </p>
+                      )}
+                      {review.reviewText && <p className="app-muted break-words">"{review.reviewText}"</p>}
+                      {review.mealReview?.reviewText && (
+                        <p className="break-words text-xs text-slate-500">Meal note: "{review.mealReview.reviewText}"</p>
+                      )}
+                    </li>
+                  ))
+                ) : (
+                  <li className="app-list-item app-muted">No recent reviews yet. Be the first to leave one.</li>
+                )}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm text-slate-400">
+                Reviews are collapsed to keep the overview clean. Expand when you want details.
+              </p>
+            )}
           </div>
         </section>
       )}
 
       {tab === 'menu' && (
-        <section className="app-card mt-6">
-          <h2 className="app-section-title">Menu (Active + Seasonal)</h2>
-
-          <form className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4" onSubmit={addMenuItem}>
-            <input
-              className="app-input sm:col-span-2 lg:col-span-2"
-              placeholder="Add seasonal/limited item"
-              value={newDishName}
-              onChange={(e) => setNewDishName(e.target.value)}
-              required
-            />
-            <select
-              className="app-select"
-              value={newDishCategory}
-              onChange={(e) => setNewDishCategory(e.target.value as DishCategory)}
-            >
-              <option value="APPETIZER">Appetizer</option>
-              <option value="ENTREE">Entree</option>
-              <option value="SIDE">Side</option>
-              <option value="DESSERT">Dessert</option>
-            </select>
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-              <label className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-slate-200">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-indigo-400"
-                  checked={newDishIsLimitedTime}
-                  onChange={(e) => setNewDishIsLimitedTime(e.target.checked)}
-                />
-                Limited time item
-              </label>
-              <button className="app-btn-primary w-full whitespace-nowrap sm:w-auto" disabled={menuActionLoading}>
-                Add
+        <section className="mt-6 space-y-4">
+          <div className="app-card-section">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="app-subsection-title">Add Menu Item</h2>
+              <button
+                type="button"
+                className="app-btn-secondary px-3 py-1.5 text-xs"
+                onClick={() => setShowMenuAddForm((prev) => !prev)}
+              >
+                {showMenuAddForm ? '▾ Hide form' : '▸ Show form'}
               </button>
             </div>
-          </form>
 
-          <div className="mt-4 max-w-xs">
-            <label className="text-sm text-slate-300">
-              Course
-              <select
-                className="app-select mt-1"
-                value={menuCourseFilter}
-                onChange={(e) => setMenuCourseFilter(e.target.value as DishCategory)}
-              >
-                {DISH_COURSES.map((course) => (
-                  <option key={course} value={course}>
-                    {DISH_COURSE_LABEL[course]}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {showMenuAddForm && (
+              <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={addMenuItem}>
+                <input
+                  className="app-input sm:col-span-2 lg:col-span-2"
+                  placeholder="Plate name"
+                  value={newDishName}
+                  onChange={(e) => setNewDishName(e.target.value)}
+                  required
+                />
+                <select
+                  className="app-select"
+                  value={newDishCategory}
+                  onChange={(e) => setNewDishCategory(e.target.value as DishCategory)}
+                >
+                  <option value="APPETIZER">Appetizer</option>
+                  <option value="ENTREE">Entree</option>
+                  <option value="SIDE">Side</option>
+                  <option value="DESSERT">Dessert</option>
+                </select>
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm text-slate-200">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-indigo-400"
+                      checked={newDishIsLimitedTime}
+                      onChange={(e) => setNewDishIsLimitedTime(e.target.checked)}
+                    />
+                    Limited time
+                  </label>
+                  <button className="app-btn-primary w-full whitespace-nowrap sm:w-auto" disabled={menuActionLoading}>
+                    Add
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
 
-          <ul className="mt-3 space-y-2 text-sm">
+          <div className="app-card-section">
+            <h2 className="app-subsection-title">Menu Items</h2>
+            <p className="text-xs text-slate-400 mb-3">Browse and manage active and seasonal plates.</p>
+
+            <div className="max-w-xs mb-4">
+              <label className="text-sm text-slate-300">
+                Filter by course
+                <select
+                  className="app-select mt-1"
+                  value={menuCourseFilter}
+                  onChange={(e) => setMenuCourseFilter(e.target.value as DishCategory)}
+                >
+                  {DISH_COURSES.map((course) => (
+                    <option key={course} value={course}>
+                      {DISH_COURSE_LABEL[course]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <ul className="space-y-2 text-sm">
             {menuItemsForSelectedCourse.length ? (
               menuItemsForSelectedCourse.map((dish) => {
                 const isExpanded = expandedDishId === dish.id;
@@ -1194,6 +1235,7 @@ export default function RestaurantProfilePage() {
               <li className="app-muted">No {DISH_COURSE_LABEL[menuCourseFilter].toLowerCase()} plates available.</li>
             )}
           </ul>
+          </div>
         </section>
       )}
 

@@ -4,7 +4,6 @@ WORKDIR /app
 COPY package*.json ./
 COPY backend/package*.json backend/
 COPY frontend/package*.json frontend/
-COPY mobile/package*.json mobile/
 
 RUN npm ci --ignore-scripts
 

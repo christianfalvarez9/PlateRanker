@@ -105,6 +105,20 @@ function csvListFromEnv(key: string): string[] {
     .filter(Boolean);
 }
 
+function optionalJwtExpiresInFromEnv(): string | undefined {
+  const value = process.env.JWT_EXPIRES_IN?.trim();
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.toLowerCase();
+  if (normalized === 'none' || normalized === 'off' || normalized === 'disabled') {
+    return undefined;
+  }
+
+  return value;
+}
+
 function emailAllowlistFromEnv(key: string): string[] {
   return csvListFromEnv(key).map((email) => email.toLowerCase());
 }
@@ -128,7 +142,7 @@ export const env = {
   port: Number(process.env.PORT ?? 4000),
   databaseUrl: requiredWithSafeProductionValue('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/platerank'),
   jwtSecret: requiredWithSafeProductionValue('JWT_SECRET', 'replace-with-strong-secret'),
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
+  jwtExpiresIn: optionalJwtExpiresInFromEnv(),
   corsOriginAllowlist: corsOriginAllowlistFromEnv(),
   googlePlacesApiKey: optionalWithSafeProductionValue('GOOGLE_PLACES_API_KEY'),
   dishPhotoBucketName: optionalWithSafeProductionValue('DISH_PHOTO_BUCKET_NAME'),

@@ -17,9 +17,14 @@ type AuthResponse = {
 };
 
 function signToken(user: Pick<User, 'id' | 'email'>): string {
-  const signOptions: jwt.SignOptions = {
-    expiresIn: env.jwtExpiresIn as jwt.SignOptions['expiresIn'],
-  };
+  const signOptions: jwt.SignOptions = {};
+  if (env.jwtExpiresIn) {
+    signOptions.expiresIn = env.jwtExpiresIn as jwt.SignOptions['expiresIn'];
+  }
+
+  if (Object.keys(signOptions).length === 0) {
+    return jwt.sign({ sub: user.id, email: user.email }, env.jwtSecret);
+  }
 
   return jwt.sign({ sub: user.id, email: user.email }, env.jwtSecret, signOptions);
 }

@@ -48,11 +48,15 @@
   }
 
   .app-card {
-    @apply rounded-2xl border border-slate-800/80 bg-slate-900/70 p-4 shadow-2xl shadow-black/25 backdrop-blur md:p-6;
+    @apply rounded-2xl border border-slate-800/80 bg-slate-900/70 p-4 shadow-2xl shadow-black/25 backdrop-blur md:p-6 transition-all duration-200;
   }
 
   .app-card-soft {
-    @apply rounded-xl border border-slate-800/80 bg-slate-900/45 p-4;
+    @apply rounded-xl border border-slate-800/80 bg-slate-900/45 p-4 transition-all duration-200;
+  }
+
+  .app-card-section {
+    @apply rounded-xl border border-slate-700/60 bg-slate-900/40 p-5 shadow-lg shadow-black/10;
   }
 
   .app-title {
@@ -60,7 +64,11 @@
   }
 
   .app-section-title {
-    @apply text-lg font-semibold text-slate-100;
+    @apply text-lg font-semibold text-slate-100 mb-1;
+  }
+
+  .app-subsection-title {
+    @apply text-base font-semibold text-slate-200 mb-2;
   }
 
   .app-muted {
@@ -74,7 +82,7 @@
   .app-input,
   .app-select,
   .app-textarea {
-    @apply w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none transition;
+    @apply w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none transition-all duration-200;
   }
 
   .app-input::placeholder,
@@ -85,35 +93,51 @@
   .app-input:focus,
   .app-select:focus,
   .app-textarea:focus {
-    @apply border-teal-400/60 ring-2 ring-teal-400/20;
+    @apply border-teal-400/60 ring-2 ring-teal-400/20 transform scale-[1.01];
   }
 
   .app-btn {
-    @apply inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95;
   }
 
   .app-btn-primary {
-    @apply app-btn bg-teal-400 text-slate-950 hover:bg-teal-300;
+    @apply app-btn bg-teal-400 text-slate-950 hover:bg-teal-300 hover:shadow-lg hover:shadow-teal-400/20;
   }
 
   .app-btn-secondary {
-    @apply app-btn border border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-500 hover:bg-slate-800;
+    @apply app-btn border border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-500 hover:bg-slate-800 hover:shadow-md;
   }
 
   .app-btn-danger {
-    @apply app-btn border border-rose-400/40 bg-rose-900/20 text-rose-200 hover:bg-rose-900/35;
+    @apply app-btn border border-rose-400/40 bg-rose-900/20 text-rose-200 hover:bg-rose-900/35 hover:border-rose-400/60;
   }
 
   .app-list-item {
-    @apply rounded-xl border border-slate-800/90 bg-slate-900/55 p-3;
+    @apply rounded-xl border border-slate-800/90 bg-slate-900/55 p-3 transition-all duration-200 hover:border-slate-700 hover:bg-slate-900/70;
   }
 
   .app-tab {
-    @apply rounded-lg border border-slate-800/90 bg-slate-900/55 px-3 py-1.5 text-sm text-slate-300 transition hover:border-slate-600 hover:text-slate-100 whitespace-nowrap;
+    @apply rounded-lg border border-slate-800/90 bg-slate-900/55 px-3 py-1.5 text-sm text-slate-300 transition-all duration-200 hover:border-slate-600 hover:text-slate-100 whitespace-nowrap active:scale-95;
   }
 
   .app-tab-active {
-    @apply border-teal-400/50 bg-teal-400/20 text-teal-200;
+    @apply border-teal-400/50 bg-teal-400/20 text-teal-200 shadow-md shadow-teal-400/10;
+  }
+
+  .app-badge {
+    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-all duration-200;
+  }
+
+  .app-badge-primary {
+    @apply app-badge border border-teal-400/30 bg-teal-400/15 text-teal-200;
+  }
+
+  .app-badge-warning {
+    @apply app-badge border border-amber-300/30 bg-amber-300/15 text-amber-100;
+  }
+
+  .app-divider {
+    @apply border-t border-slate-700/50 my-4;
   }
 }
 
