@@ -82,7 +82,7 @@
   .app-input,
   .app-select,
   .app-textarea {
-    @apply w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none transition-all duration-200;
+    @apply w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-base text-slate-100 outline-none transition-all duration-200;
   }
 
   .app-input::placeholder,
@@ -96,8 +96,17 @@
     @apply border-teal-400/60 ring-2 ring-teal-400/20 transform scale-[1.01];
   }
 
+  /* Mobile-specific: Prevent iOS zoom on input focus */
+  @media screen and (max-width: 640px) {
+    .app-input,
+    .app-select,
+    .app-textarea {
+      font-size: 16px;
+    }
+  }
+
   .app-btn {
-    @apply inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95;
+    @apply inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 touch-manipulation;
   }
 
   .app-btn-primary {

@@ -8,6 +8,37 @@ import { apiRequest } from '@/lib/api';
 import { getToken, getUser, updateStoredUser } from '@/lib/auth';
 import { WantToVisitEntry } from '@/lib/types';
 
+type DiscoveryPlateItem = {
+  dishId: string;
+  dishName: string;
+  restaurantId: string;
+  restaurantName: string;
+  currentDishRating: number;
+  reviewCount: number;
+  trendIncrease?: number;
+  trendLabel?: string;
+};
+
+type DiscoveryResponse = {
+  location: string;
+  topRatedPlates: DiscoveryPlateItem[];
+  topRestaurants: Array<{
+    restaurantId: string;
+    restaurantName: string;
+    overallRating: number;
+  }>;
+  trendingPlates: {
+    available: boolean;
+    reason: 'OK' | 'NO_RESULTS_FOR_LOCATION' | 'INSUFFICIENT_7_DAY_TREND_DATA';
+    items: DiscoveryPlateItem[];
+  };
+};
+
+type SearchLocationPreferenceResponse = {
+  defaultSearchLocation: string | null;
+  updatedAt: string;
+};
+
 type DashboardResponse = {
   highestRatedDishes: Array<{
     reviewId: string;
@@ -30,27 +61,13 @@ type DashboardResponse = {
     createdAt: string;
   }>;
   wantToVisit: WantToVisitEntry[];
-  savedRecipes: Array<{
-    id: string;
-    title: string;
-    link: string;
-    createdAt: string;
-    dish: {
-      id: string;
-      name: string;
-    };
-    restaurant: {
-      id: string;
-      name: string;
-    };
-  }>;
 };
 
 type UserResponse = {
   id: string;
   name: string;
   email: string;
-  recipeMatchEnabled: boolean;
+  defaultSearchLocation?: string | null;
 };
 
 function resolvePublicDashboardUrl(userId: string): string {
@@ -70,10 +87,12 @@ function DashboardPageContent() {
   const token = getToken();
 
   const [data, setData] = useState<DashboardResponse | null>(null);
-  const [recipeEnabled, setRecipeEnabled] = useState<boolean>(viewer?.recipeMatchEnabled ?? true);
+  const [discovery, setDiscovery] = useState<DiscoveryResponse | null>(null);
+  const [savedDefaultLocation, setSavedDefaultLocation] = useState(viewer?.defaultSearchLocation ?? '');
   const [loading, setLoading] = useState(true);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -100,28 +119,55 @@ function DashboardPageContent() {
     void load();
   }, [token, userId]);
 
-  const toggleRecipePreference = async () => {
-    if (!token || !userId) {
-      return;
-    }
+  useEffect(() => {
+    const loadDefaultSearchLocation = async () => {
+      if (!token) {
+        setSavedDefaultLocation('');
+        return;
+      }
 
-    setSaving(true);
-    try {
-      const updated = await apiRequest<UserResponse>(`/users/${userId}/preferences/recipe-match`, {
-        method: 'PATCH',
-        token,
-        body: {
-          recipeMatchEnabled: !recipeEnabled,
-        },
-      });
-      setRecipeEnabled(updated.recipeMatchEnabled);
-      updateStoredUser({ recipeMatchEnabled: updated.recipeMatchEnabled });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update preference');
-    } finally {
-      setSaving(false);
-    }
-  };
+      try {
+        const result = await apiRequest<SearchLocationPreferenceResponse>('/users/me/preferences/search-location', {
+          token,
+        });
+        const nextLocation = result.defaultSearchLocation ?? '';
+        setSavedDefaultLocation(nextLocation);
+      } catch {
+        setSavedDefaultLocation('');
+      }
+    };
+
+    void loadDefaultSearchLocation();
+  }, [token]);
+
+  useEffect(() => {
+    const loadDiscovery = async () => {
+      if (!savedDefaultLocation.trim()) {
+        setDiscovery(null);
+        setDiscoveryError(null);
+        return;
+      }
+
+      setDiscoveryLoading(true);
+      setDiscoveryError(null);
+
+      try {
+        const params = new URLSearchParams({
+          location: savedDefaultLocation,
+          radiusMiles: '10',
+        });
+        const result = await apiRequest<DiscoveryResponse>(`/restaurants/discovery?${params.toString()}`);
+        setDiscovery(result);
+      } catch (err) {
+        setDiscoveryError(err instanceof Error ? err.message : 'Failed to load personalized discovery data');
+        setDiscovery(null);
+      } finally {
+        setDiscoveryLoading(false);
+      }
+    };
+
+    void loadDiscovery();
+  }, [savedDefaultLocation]);
 
   const shareDashboard = async () => {
     if (!userId) {
@@ -164,10 +210,6 @@ function DashboardPageContent() {
       <section className="app-card">
         <h1 className="app-title">Your dashboard</h1>
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <span className="app-muted text-sm">Recipe Match</span>
-          <button className="app-btn-secondary w-full px-3 py-1.5 sm:w-auto" onClick={toggleRecipePreference} disabled={saving}>
-            {recipeEnabled ? 'On' : 'Off'}
-          </button>
           <button
             type="button"
             className="app-btn-secondary w-full px-3 py-1.5 sm:w-auto"
@@ -191,29 +233,136 @@ function DashboardPageContent() {
       {data && (
         <>
           <section className="app-card mt-6">
-            <h2 className="app-section-title">Saved Recipe Links</h2>
-            <ul className="mt-2 space-y-2 text-sm">
-              {data.savedRecipes.length ? (
-                data.savedRecipes.map((recipe) => (
-                  <li key={recipe.id} className="app-list-item text-slate-300">
-                    <p className="font-medium text-slate-100 break-words">{recipe.title}</p>
-                    <p className="app-muted text-xs break-words">
-                      From {recipe.dish.name} @ {recipe.restaurant.name}
-                    </p>
-                    <a
-                      href={recipe.link}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 inline-block break-all text-teal-300 underline hover:text-teal-200"
-                    >
-                      Open recipe link
-                    </a>
-                  </li>
-                ))
-              ) : (
-                <li className="app-muted">No saved recipe links yet. Submit a high-rated plate review to get matches.</li>
-              )}
-            </ul>
+            <h2 className="app-section-title">Discovery</h2>
+            {!savedDefaultLocation && (
+              <div className="mt-2 text-sm">
+                <p className="app-muted">No default location saved yet.</p>
+                <Link href="/profile" className="mt-2 inline-block text-teal-300 underline hover:text-teal-200">
+                  Add a default location in Profile
+                </Link>
+              </div>
+            )}
+
+            {savedDefaultLocation && (
+              <>
+                <p className="app-muted mt-2 text-sm">
+                  Showing discoveries for your saved default location: <span className="text-slate-100">{savedDefaultLocation}</span>
+                </p>
+                {discoveryLoading && <p className="app-muted mt-3 text-sm">Loading discovery boxes...</p>}
+                {discoveryError && <p className="app-error mt-3">{discoveryError}</p>}
+
+                {!discoveryLoading && !discoveryError && discovery && (
+                  <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                    <article className="app-card-soft">
+                      <h3 className="text-sm font-semibold text-slate-100">Top 10 Rated Plates</h3>
+                      <ul className="mt-3 space-y-2">
+                        {discovery.topRatedPlates.length ? (
+                          discovery.topRatedPlates.map((plate) => (
+                            <li key={`top-${plate.dishId}-${plate.restaurantId}`}>
+                              {plate.restaurantId ? (
+                                <Link
+                                  href={`/restaurants/${plate.restaurantId}`}
+                                  className="block rounded-lg border border-slate-800 bg-slate-900/50 p-2 transition hover:border-teal-400/50 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-slate-100 break-words">{plate.dishName}</p>
+                                      <p className="mt-0.5 text-xs text-slate-400 break-words">{plate.restaurantName}</p>
+                                    </div>
+                                    <span className="shrink-0 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-1 text-xs font-semibold text-teal-200">
+                                      {plate.currentDishRating.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </Link>
+                              ) : (
+                                <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+                                  <p className="text-sm font-medium text-slate-100 break-words">{plate.dishName}</p>
+                                  <p className="mt-0.5 text-xs text-slate-400 break-words">Link unavailable</p>
+                                </div>
+                              )}
+                            </li>
+                          ))
+                        ) : (
+                          <li className="app-muted text-sm">No plate ratings yet for this location.</li>
+                        )}
+                      </ul>
+                    </article>
+
+                    <article className="app-card-soft">
+                      <h3 className="text-sm font-semibold text-slate-100">Trending Plates</h3>
+                      {discovery.trendingPlates.available ? (
+                        <ul className="mt-3 space-y-2">
+                          {discovery.trendingPlates.items.map((plate) => (
+                            <li key={`trend-${plate.dishId}-${plate.restaurantId}`}>
+                              {plate.restaurantId ? (
+                                <Link
+                                  href={`/restaurants/${plate.restaurantId}`}
+                                  className="block rounded-lg border border-slate-800 bg-slate-900/50 p-2 transition hover:border-teal-400/50 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-slate-100 break-words">{plate.dishName}</p>
+                                      <p className="mt-0.5 text-xs text-slate-400 break-words">{plate.restaurantName}</p>
+                                      {plate.trendLabel && (
+                                        <p className="mt-1 text-[11px] text-emerald-300 break-words">{plate.trendLabel}</p>
+                                      )}
+                                    </div>
+                                    <span className="shrink-0 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-1 text-xs font-semibold text-teal-200">
+                                      {plate.currentDishRating.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </Link>
+                              ) : (
+                                <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+                                  <p className="text-sm font-medium text-slate-100 break-words">{plate.dishName}</p>
+                                  <p className="mt-0.5 text-xs text-slate-400 break-words">Link unavailable</p>
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-sm text-slate-300">
+                          {discovery.trendingPlates.reason === 'NO_RESULTS_FOR_LOCATION'
+                            ? 'No nearby results were found for your saved location.'
+                            : 'Not enough 7-day trend data yet. Trending plates will appear once enough recent and prior-week ratings are available.'}
+                        </div>
+                      )}
+                    </article>
+
+                    <article className="app-card-soft">
+                      <h3 className="text-sm font-semibold text-slate-100">Top 10 Restaurants</h3>
+                      <ul className="mt-3 space-y-2">
+                        {discovery.topRestaurants.length ? (
+                          discovery.topRestaurants.map((restaurant) => (
+                            <li key={`rest-${restaurant.restaurantId}`}>
+                              {restaurant.restaurantId ? (
+                                <Link
+                                  href={`/restaurants/${restaurant.restaurantId}`}
+                                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-2 transition hover:border-teal-400/50 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400/60"
+                                >
+                                  <p className="text-sm font-medium text-slate-100 break-words">{restaurant.restaurantName}</p>
+                                  <span className="shrink-0 rounded-md border border-indigo-400/30 bg-indigo-400/10 px-2 py-1 text-xs font-semibold text-indigo-200">
+                                    {restaurant.overallRating.toFixed(2)}
+                                  </span>
+                                </Link>
+                              ) : (
+                                <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+                                  <p className="text-sm font-medium text-slate-100 break-words">{restaurant.restaurantName}</p>
+                                  <p className="mt-0.5 text-xs text-slate-400 break-words">Link unavailable</p>
+                                </div>
+                              )}
+                            </li>
+                          ))
+                        ) : (
+                          <li className="app-muted text-sm">No restaurant ratings yet for this location.</li>
+                        )}
+                      </ul>
+                    </article>
+                  </div>
+                )}
+              </>
+            )}
           </section>
 
           <section className="app-card mt-6">

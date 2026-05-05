@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: 'PlateRank',
-  description: 'Rate restaurants and plates with weighted scoring.',
+  description: 'Because Not All Dishes Are Created Equal',
 };
 
 export const viewport: Viewport = {

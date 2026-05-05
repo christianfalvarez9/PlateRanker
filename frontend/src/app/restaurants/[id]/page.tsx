@@ -11,7 +11,7 @@ import { containsInappropriateDishLanguage } from '@/lib/menuNameModeration';
 type Dish = {
   id: string;
   name: string;
-  category: 'APPETIZER' | 'ENTREE' | 'SIDE' | 'DESSERT';
+  category: 'APPETIZER' | 'SALAD_SOUP' | 'ENTREE' | 'SIDE' | 'DESSERT';
   status: 'ACTIVE' | 'SEASONAL' | 'HISTORICAL';
   unavailableFlagCount: number;
   avgDishScore?: number | null;
@@ -36,10 +36,11 @@ type DishPhotoUploadState = {
   fileName: string | null;
 };
 
-const DISH_COURSES: DishCategory[] = ['APPETIZER', 'ENTREE', 'SIDE', 'DESSERT'];
+const DISH_COURSES: DishCategory[] = ['APPETIZER', 'SALAD_SOUP', 'ENTREE', 'SIDE', 'DESSERT'];
 
 const DISH_COURSE_LABEL: Record<DishCategory, string> = {
   APPETIZER: 'Appetizer',
+  SALAD_SOUP: 'Salad & Soup',
   ENTREE: 'Entree',
   SIDE: 'Side',
   DESSERT: 'Dessert',
@@ -47,11 +48,6 @@ const DISH_COURSE_LABEL: Record<DishCategory, string> = {
 
 const SCORE_OPTIONS = Array.from({ length: 10 }, (_, index) => index + 1);
 const ADD_NEW_DISH_OPTION_VALUE = '__add_new_dish__';
-
-type RecipeMatch = {
-  title: string;
-  link: string;
-};
 
 const createDefaultDishDraft = (): DishReviewDraft => ({
   taste: 8,
@@ -74,7 +70,7 @@ type RestaurantProfileResponse = {
     foodRating?: number | null;
     serviceRating?: number | null;
     atmosphereRating?: number | null;
-    valueRating?: number | null;
+    beverageRating?: number | null;
     highRepeatCustomersBadge: boolean;
   };
   topDishes: Array<{ dishId: string; name: string; avgScore: number; reviewCount: number }>;
@@ -95,7 +91,7 @@ type RestaurantReviewsResponse = {
       id: string;
       serviceScore: number;
       atmosphereScore: number;
-      valueScore: number;
+      beverageScore: number;
       reviewText?: string | null;
       imageUrl?: string | null;
       createdAt: string;
@@ -123,7 +119,6 @@ type MealReviewResult = {
       };
     }>;
   };
-  recipeMatches: RecipeMatch[];
 };
 
 type DishDetailsResponse = {
@@ -236,11 +231,10 @@ export default function RestaurantProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
-  const [recipeMatches, setRecipeMatches] = useState<RecipeMatch[]>([]);
 
   const [serviceScore, setServiceScore] = useState(8);
   const [atmosphereScore, setAtmosphereScore] = useState(8);
-  const [valueScore, setValueScore] = useState(8);
+  const [beverageScore, setBeverageScore] = useState(8);
   const [mealReviewText, setMealReviewText] = useState('');
   const [selectedDishIds, setSelectedDishIds] = useState<string[]>([]);
   const [dishDrafts, setDishDrafts] = useState<Record<string, DishReviewDraft>>({});
@@ -596,7 +590,6 @@ export default function RestaurantProfilePage() {
 
     setReviewLoading(true);
     setMessage(null);
-    setRecipeMatches([]);
 
     try {
       const result = await apiRequest<MealReviewResult>('/meal-reviews', {
@@ -606,7 +599,7 @@ export default function RestaurantProfilePage() {
           restaurantId,
           serviceScore,
           atmosphereScore,
-          valueScore,
+          beverageScore,
           reviewText: mealReviewText || undefined,
           dishes: selectedDishIds.map((dishId) => {
             const draft = dishDrafts[dishId] ?? createDefaultDishDraft();
@@ -626,7 +619,6 @@ export default function RestaurantProfilePage() {
       });
 
       setMessage(`Meal review submitted! ${result.mealReview.dishReviews.length} plate reviews saved.`);
-      setRecipeMatches(result.recipeMatches);
       setMealReviewText('');
       resetReviewDishSelection();
 
@@ -792,7 +784,7 @@ export default function RestaurantProfilePage() {
     }
 
     const confirmed = window.confirm(
-      `Permanently delete "${dish.name}"? This also deletes related reviews and saved recipe links. This cannot be undone.`,
+      `Permanently delete "${dish.name}"? This also deletes related reviews. This cannot be undone.`,
     );
     if (!confirmed) {
       return;
@@ -880,7 +872,7 @@ export default function RestaurantProfilePage() {
             <p>Food: {restaurant.foodRating ?? 'No ratings yet'}</p>
             <p>Service: {restaurant.serviceRating ?? 'No ratings yet'}</p>
             <p>Atmosphere: {restaurant.atmosphereRating ?? 'No ratings yet'}</p>
-            <p>Cleanliness: {restaurant.valueRating ?? 'No ratings yet'}</p>
+            <p>Beverages: {restaurant.beverageRating ?? 'No ratings yet'}</p>
             {restaurant.highRepeatCustomersBadge && (
               <p className="mt-2 inline-flex rounded-full border border-amber-300/30 bg-amber-300/15 px-2 py-1 text-xs text-amber-100">
                 High Repeat Customers
@@ -973,7 +965,7 @@ export default function RestaurantProfilePage() {
                       {review.mealReview && (
                         <p className="app-muted break-words text-xs">
                           Service {review.mealReview.serviceScore} · Atmosphere {review.mealReview.atmosphereScore} ·
-                          {' '}Cleanliness {review.mealReview.valueScore}
+                          {' '}Beverages {review.mealReview.beverageScore}
                         </p>
                       )}
                       {review.reviewText && <p className="app-muted break-words">"{review.reviewText}"</p>}
@@ -1024,6 +1016,7 @@ export default function RestaurantProfilePage() {
                   onChange={(e) => setNewDishCategory(e.target.value as DishCategory)}
                 >
                   <option value="APPETIZER">Appetizer</option>
+                  <option value="SALAD_SOUP">Salad &amp; Soup</option>
                   <option value="ENTREE">Entree</option>
                   <option value="SIDE">Side</option>
                   <option value="DESSERT">Dessert</option>
@@ -1207,7 +1200,7 @@ export default function RestaurantProfilePage() {
                                       {review.valueScore} · Presentation {review.presentationScore} · Uniqueness{' '}
                                       {review.uniquenessScore}
                                     </p>
-                                    {review.reviewText && <p className="mt-1">“{review.reviewText}”</p>}
+                                    {review.reviewText && <p className="mt-1">"{review.reviewText}"</p>}
                                     {review.imageUrl && (
                                       <a
                                         href={review.imageUrl}
@@ -1311,11 +1304,11 @@ export default function RestaurantProfilePage() {
                   </select>
                 </label>
                 <label className="text-sm text-slate-300">
-                  Cleanliness (1-10)
+                  Beverages (1-10)
                   <select
                     className="app-select mt-1"
-                    value={valueScore}
-                    onChange={(e) => setValueScore(Number(e.target.value))}
+                    value={beverageScore}
+                    onChange={(e) => setBeverageScore(Number(e.target.value))}
                   >
                     {SCORE_OPTIONS.map((score) => (
                       <option key={score} value={score}>
@@ -1613,22 +1606,6 @@ export default function RestaurantProfilePage() {
               {reviewLoading ? 'Submitting...' : 'Submit meal review'}
             </button>
           </form>
-
-          {recipeMatches.length > 0 && (
-            <div className="app-card-soft mt-4">
-              <p className="font-medium text-slate-100">Recipe matches</p>
-              <ul className="mt-2 space-y-2 text-sm text-slate-300">
-                {recipeMatches.map((match, index) => (
-                  <li key={`${match.link}-${index}`} className="break-words">
-                    {match.title}{' '}
-                    <a className="inline-block break-all text-teal-300 underline hover:text-teal-200" href={match.link} target="_blank" rel="noreferrer">
-                      View recipe
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </section>
       )}
 

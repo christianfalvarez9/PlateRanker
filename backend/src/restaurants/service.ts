@@ -1197,7 +1197,7 @@ export async function getRestaurantReviews(restaurantId: string, page = 1, limit
             id: true,
             serviceScore: true,
             atmosphereScore: true,
-            valueScore: true,
+            beverageScore: true,
             reviewText: true,
             imageUrl: true,
             createdAt: true,

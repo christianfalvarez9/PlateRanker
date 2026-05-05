@@ -9,8 +9,9 @@ type DishScoreInput = {
 };
 
 const CATEGORY_WEIGHTS: Record<DishCategory, number> = {
-  APPETIZER: 0.25,
-  ENTREE: 0.5,
+  APPETIZER: 0.2,
+  SALAD_SOUP: 0.15,
+  ENTREE: 0.4,
   SIDE: 0.15,
   DESSERT: 0.1,
 };
@@ -56,19 +57,20 @@ export function calculateOverallRating(args: {
   foodRating: number | null;
   serviceRating: number | null;
   atmosphereRating: number | null;
-  valueRating: number | null;
+  beverageRating: number | null;
 }): number | null {
-  const { foodRating, serviceRating, atmosphereRating, valueRating } = args;
+  const { foodRating, serviceRating, atmosphereRating, beverageRating } = args;
 
   if (foodRating === null) {
     return null;
   }
 
-  if (serviceRating === null || atmosphereRating === null || valueRating === null) {
+  if (serviceRating === null || atmosphereRating === null || beverageRating === null) {
     return foodRating;
   }
 
-  const total = foodRating * 0.5 + serviceRating * 0.2 + atmosphereRating * 0.15 + valueRating * 0.15;
+  const total =
+    foodRating * 0.5 + serviceRating * 0.2 + atmosphereRating * 0.15 + beverageRating * 0.15;
   return roundToTwo(total);
 }
 

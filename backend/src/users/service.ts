@@ -93,7 +93,7 @@ export async function getUserReviews(userId: string, requesterId: string) {
           id: true,
           serviceScore: true,
           atmosphereScore: true,
-          valueScore: true,
+          beverageScore: true,
           reviewText: true,
           createdAt: true,
         },

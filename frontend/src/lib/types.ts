@@ -20,7 +20,7 @@ export type Restaurant = {
   foodRating?: number | null;
   serviceRating?: number | null;
   atmosphereRating?: number | null;
-  valueRating?: number | null;
+  beverageRating?: number | null;
   highRepeatCustomersBadge: boolean;
   cuisines?: string[];
   restaurantTypes?: string[];
@@ -44,7 +44,7 @@ export type Dish = {
   id: string;
   restaurantId: string;
   name: string;
-  category: 'APPETIZER' | 'ENTREE' | 'SIDE' | 'DESSERT';
+  category: 'APPETIZER' | 'SALAD_SOUP' | 'ENTREE' | 'SIDE' | 'DESSERT';
   status: 'ACTIVE' | 'SEASONAL' | 'HISTORICAL';
   unavailableFlagCount: number;
   isActive: boolean;

@@ -23,7 +23,7 @@ export async function recomputeRestaurantRatings(restaurantId: string): Promise<
     _avg: {
       serviceScore: true,
       atmosphereScore: true,
-      valueScore: true,
+      beverageScore: true,
     },
   });
 
@@ -36,14 +36,16 @@ export async function recomputeRestaurantRatings(restaurantId: string): Promise<
     experienceAverages._avg.atmosphereScore === null
       ? null
       : roundToTwo(experienceAverages._avg.atmosphereScore);
-  const valueRating =
-    experienceAverages._avg.valueScore === null ? null : roundToTwo(experienceAverages._avg.valueScore);
+  const beverageRating =
+    experienceAverages._avg.beverageScore === null
+      ? null
+      : roundToTwo(experienceAverages._avg.beverageScore);
 
   const overallRating = calculateOverallRating({
     foodRating,
     serviceRating,
     atmosphereRating,
-    valueRating,
+    beverageRating,
   });
 
   await prisma.restaurant.update({
@@ -52,7 +54,7 @@ export async function recomputeRestaurantRatings(restaurantId: string): Promise<
       foodRating,
       serviceRating,
       atmosphereRating,
-      valueRating,
+      beverageRating,
       overallRating,
     },
   });

@@ -29,7 +29,7 @@ type CreateMealReviewInput = {
   restaurantId: string;
   serviceScore: number;
   atmosphereScore: number;
-  valueScore: number;
+  beverageScore: number;
   reviewText?: string;
   imageUrl?: string;
   dishes: Array<{
@@ -191,7 +191,7 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
     id: string;
     serviceScore: number;
     atmosphereScore: number;
-    valueScore: number;
+    beverageScore: number;
     reviewText: string | null;
     imageUrl: string | null;
     createdAt: Date;
@@ -262,7 +262,7 @@ export async function createMealReview(input: CreateMealReviewInput): Promise<{
         restaurantId: input.restaurantId,
         serviceScore: input.serviceScore,
         atmosphereScore: input.atmosphereScore,
-        valueScore: input.valueScore,
+        beverageScore: input.beverageScore,
         reviewText: normalizeOptionalText(input.reviewText),
         imageUrl: input.imageUrl,
       },
@@ -446,7 +446,7 @@ export async function updateReview(input: UpdateReviewInput) {
           id: true,
           serviceScore: true,
           atmosphereScore: true,
-          valueScore: true,
+          beverageScore: true,
           reviewText: true,
           createdAt: true,
         },

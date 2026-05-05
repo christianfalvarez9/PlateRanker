@@ -31,7 +31,7 @@ type ReviewHistoryItem = {
     id: string;
     serviceScore: number;
     atmosphereScore: number;
-    valueScore: number;
+    beverageScore: number;
     reviewText?: string | null;
     createdAt: string;
   } | null;
@@ -557,7 +557,7 @@ export default function ProfilePage() {
                           <div className="mt-2 grid gap-2 text-xs text-slate-300 sm:grid-cols-3">
                             <p>Service: {review.mealReview.serviceScore}</p>
                             <p>Atmosphere: {review.mealReview.atmosphereScore}</p>
-                            <p>Cleanliness: {review.mealReview.valueScore}</p>
+                            <p>Beverages: {review.mealReview.beverageScore}</p>
                           </div>
                           {review.mealReview.reviewText && (
                             <p className="app-muted mt-2 break-words text-xs">Meal note: “{review.mealReview.reviewText}”</p>

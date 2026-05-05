@@ -136,7 +136,7 @@ export const createMealReviewSchema = z
     restaurantId: z.string().uuid(),
     serviceScore: score,
     atmosphereScore: score,
-    valueScore: score,
+    beverageScore: score,
     reviewText: z.string().trim().max(2000).optional(),
     imageUrl: z.string().url().optional(),
     dishes: z.array(mealDishReviewSchema).min(1).max(20),

@@ -9,6 +9,7 @@ datasource db {
 
 enum DishCategory {
   APPETIZER
+  SALAD_SOUP
   ENTREE
   SIDE
   DESSERT
@@ -59,7 +60,7 @@ model Restaurant {
   foodRating                 Float?
   serviceRating              Float?
   atmosphereRating           Float?
-  valueRating                Float?
+  beverageRating             Float?   @map("valueRating")
   highRepeatCustomersBadge   Boolean  @default(false)
   dishes                     Dish[]
   mealReviews                MealReview[]
@@ -100,7 +101,7 @@ model MealReview {
   restaurantId    String
   serviceScore    Int
   atmosphereScore Int
-  valueScore      Int
+  beverageScore   Int        @map("valueScore")
   reviewText      String?
   imageUrl        String?
   user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
